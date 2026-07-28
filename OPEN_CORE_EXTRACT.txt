@@ -1,0 +1,4 @@
+Steward open-core extract
+Generated: 2026-07-28T21:38:49Z
+Source: private Cerid-AI/steward
+See docs/OPEN_CORE.md

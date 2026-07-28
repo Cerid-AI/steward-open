@@ -1,0 +1,68 @@
+version: 1
+kind: PromotionPolicy
+metadata:
+  name: bundled-default
+  description: >
+    Bundled promotion defaults — port of sprawl-audit/scripts/promote_execute.py::PHASES.
+    Each phase declares (a) the match (domain or path) that selects candidate
+    permanodes and (b) the destination root on the target live tier.
+
+defaults:
+  path_translations:
+    - from: "/Volumes/NFS-Backup/"
+      to: "/Volumes/Backup/"
+    - from: "/Volumes/NFS-Level3a/"
+      to: "/Volumes/Level_3a/"
+  source_tier: Backup
+  copy_strategy: stream-hash-rename
+  hash_algo: blake3
+  preserve_mtime: true
+  on_dst_exists_size_match_hash_match: skip-ok
+  on_dst_exists_size_match_hash_mismatch: error
+  on_dst_exists_size_mismatch: error
+  # Default mirror: strip the Backup share root and preserve the rest of
+  # the path tree under the phase's destination_root. Phases that need a
+  # finer anchor override with `mirror_from`.
+  mirror_strip_prefix: "/Volumes/Backup/"
+
+phases:
+  - name: documents-validation
+    match:
+      domain: documents
+    destination_root: "/Volumes/Level 2/Documents-Heritage/BackupPromote-2026-05-12"
+    max_files: 100
+
+  - name: documents-full
+    match:
+      domain: documents
+    destination_root: "/Volumes/Level 2/Documents-Heritage/BackupPromote-2026-05-12"
+
+  - name: music
+    match:
+      domain: music
+    destination_root: "/Volumes/Level_3a/_promote-staging-music-20260514"
+
+  - name: video
+    match:
+      domain: video
+    destination_root: "/Volumes/Level_3a/_promote-staging-video-20260514"
+
+  - name: photos
+    match:
+      domain: photos
+    destination_root: "/Volumes/Level 2/Photos/Heritage-Loose-Backup-Promote-2026-05-12"
+
+  - name: other-music-archive
+    match:
+      path_substring: "/Music/MusicArchive"
+    destination_root: "/Volumes/Level_3a/_promote-staging-music-20260514/MusicArchive"
+    # Anchor at the MusicArchive folder — destination mirrors the structure
+    # inside MusicArchive (e.g. Artist/Album/track.mp3), not the full Backup tree.
+    mirror_from: "MusicArchive/"
+
+  - name: other-s-work-archive
+    match:
+      path_substring: "/S/"
+    destination_root: "/Volumes/Level 2/Work-Heritage-Cannon/BackupPromote-2026-05-12"
+    # Anchor at the S/ work-archive folder.
+    mirror_from: "/S/"

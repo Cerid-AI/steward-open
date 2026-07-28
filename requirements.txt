@@ -1,0 +1,18 @@
+# Steward runtime deps — mirrors [project.dependencies] in pyproject.toml.
+# Lockfile: requirements.lock (generated via `make lock`).
+
+typer>=0.15,<0.17
+pydantic>=2.9,<3
+pydantic-settings>=2.6,<3
+PyYAML>=6.0.2,<7
+structlog>=25.1,<26
+sentry-sdk>=2.18,<3
+alembic>=1.14,<2
+SQLAlchemy>=2.0.36,<3
+xxhash>=3.5,<4
+blake3>=1.0,<2
+sqlite-vec>=0.1.6,<0.2
+rich>=13.9,<14
+platformdirs>=4.3,<5
+watchdog>=4.0,<5
+mcp>=1.0,<2

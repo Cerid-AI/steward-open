@@ -1,0 +1,45 @@
+version: 1
+kind: ArchivePolicy
+metadata:
+  name: bundled-default
+  description: >
+    Encrypted archive of Steward's user-data via restic. Complements
+    `replication.yml` (which mirrors plaintext) with a snapshot tier
+    that's deduplicated and encrypted at rest. Recommended cadence:
+    `steward replicate run --execute` runs after every meaningful
+    inventory mutation; `steward archive snapshot --execute` runs
+    once per day from launchd.
+
+    Before first use, run:
+        steward archive init --policy archive.yml --execute
+
+    Repository password lives in the macOS keychain. Add it once with:
+        security add-generic-password -a "$USER" -s steward-restic \
+          -w "<your-restic-password>"
+
+    Override per-host by copying this file to
+    `~/.config/steward/policies.d/archive.yml`.
+
+defaults:
+  restic_bin: restic
+  timeout_seconds: 7200
+  password_command: "security find-generic-password -s steward-restic -w"
+  extra_args: []
+
+sources:
+  - name: inventory-archive
+    source: "/home/operator/.local/share/steward/inventory.db"
+    repository: "/Volumes/Backup/_steward-archive"
+    tags: ["inventory"]
+    excludes: []
+    enabled: true
+
+  - name: workspace-archive
+    source: "/home/operator/.local/share/steward/"
+    repository: "/Volumes/Backup/_steward-archive"
+    tags: ["user-data"]
+    excludes:
+      - "**/__pycache__"
+      - "**/.DS_Store"
+      - "**/*.cache"
+    enabled: true

@@ -1,0 +1,67 @@
+version: 1
+kind: ClassificationPolicy
+metadata:
+  name: bundled-default
+  description: >
+    Bundled classification defaults — port of sprawl-audit/scripts/unified_hash_db.py::domain_hint
+    plus the cluster patterns from contextual_cluster.py::CLUSTERS.
+    The domain rules drive claims.domain; the cluster rules drive claims.classification.
+
+domains:
+  - name: container
+    rules:
+      - path_substring_any_of: ["/container-contents/"]
+  - name: system
+    rules:
+      - path_substring_any_of: ["/Library/", "/WinSxS/", "/AppData/"]
+  - name: photos
+    rules:
+      - path_substring_any_of:
+          - ".photoslibrary/"
+          - ".photolibrary/"
+          - "/dcim/"
+          - "/photos/"
+          - "/pictures/"
+  - name: music
+    rules:
+      - path_substring_any_of: ["/music/", ".musiclibrary/", ".itlp/"]
+  - name: video
+    rules:
+      - path_substring_any_of: ["/movies/", "/videos/", ".imovieproject/"]
+  - name: documents
+    rules:
+      - path_substring_any_of: ["/documents/"]
+  - name: code
+    rules:
+      - path_substring_any_of: ["/code/", "/develop/", "/src/", "/projects/"]
+  - name: installers
+    rules:
+      - path_substring_any_of: ["/software/", "/installers/", "/bootcamp items/"]
+  - name: backups
+    rules:
+      - path_substring_any_of: ["/backup/", "_phase5-stash", "_pst-dedup-stash"]
+  - name: web
+    rules:
+      - path_substring_any_of: ["/web/", "/www/"]
+
+clusters:
+  - label: Media-Recovered-From-Trash
+    regex_any_of:
+      - "PhotoVault Deleted Images"
+      - "Recently Deleted"
+      - "\\.RecentlyDeleted"
+      - "Photos Trash"
+      - "iPhoto Trash"
+      - "Music Trash"
+      - "Trash/Original Files"
+      - "Recovered Files/[A-Za-z]+"
+      - "Lost\\+Found"
+      - "Recycle Bin"
+      - "\\$RECYCLE\\.BIN"
+  - label: Work-Cannon-AFB
+    regex_any_of:
+      - "/Misc Consolidated Backups/S/"
+      - "3 ?SOS"
+      - "Cannon"
+      - "AFB"
+      - "/DOW/"

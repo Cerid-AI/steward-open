@@ -1,0 +1,50 @@
+version: 1
+kind: RetentionPolicy
+metadata:
+  name: recovered-redundant
+  description: >
+    Retire claims under RECOVERED-* / Recently Deleted / PhotoVault paths
+    when a non-recovered canonical exists for the same permanode. Port of
+    sprawl-audit/scripts/recovered_retire.py. Uses the same dedup-retire
+    reconciler as retention.yml but with `recovered_substrings` set so
+    the keeper is always a non-recovered claim regardless of tier
+    priority.
+
+exclusions:
+  always_skip_substrings:
+    - "/@eaDir/"
+    - "@SynoResource"
+    - "@SynoEAStream"
+    - "/.Spotlight-V100/"
+    - "/.TemporaryItems/"
+    - "/.Trashes/"
+    - "/.fseventsd/"
+  no_promote_substrings: []
+  basename_prefixes: ["._"]
+  basename_exact: [".DS_Store", ".apdisk", ".localized"]
+
+dedup_retire:
+  strategy: keep-highest-priority-tier
+  recovered_substrings:
+    - "/RECOVERED-"
+    - "/_recovered-"
+    - "/Recently Deleted/"
+    - "PhotoVault Deleted Images/"
+    - "/Trash/Original Files/"
+  tier_priority:
+    boot: 0
+    L1: 1
+    L1w: 2
+    L2: 3
+    L3a: 4
+    DropboxStorage: 5
+    Backup: 6
+  live_tiers: [boot, L1, L1w, L2, L3a, DropboxStorage]
+  cooling_off_days: 7
+  stash_roots:
+    boot: "/home/operator/_recovered-redundant-stash"
+    L1: "/Volumes/Level 1/_recovered-redundant-stash"
+    L2: "/Volumes/Level 2/_recovered-redundant-stash"
+    L3a: "/Volumes/Level_3a/_recovered-redundant-stash"
+    DropboxStorage: "/Volumes/DropboxStorage/_recovered-redundant-stash"
+  nas_manifest_tiers: [Backup]

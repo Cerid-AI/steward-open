@@ -1,0 +1,46 @@
+version: 1
+kind: ReplicationPolicy
+metadata:
+  name: bundled-default
+  description: >
+    Default replication: mirror Steward's user-data (inventory.db,
+    workspace, runs/, snapshots/) to the Backup NAS under
+    `_steward-mirror/`. Replaces the CCC-task approach for the
+    operator's CCC config item from the sprawl-audit handoff.
+
+    Override per-host by copying this file to
+    `~/.config/steward/policies.d/replication.yml` and editing the
+    paths. Add additional sources for cloud targets (B2 / S3 via
+    rclone remotes) as needed.
+
+defaults:
+  rclone_bin: rclone
+  # 30 minutes is plenty for a typical inventory.db (single file, MB-scale)
+  # but real replication of `workspace/` may need more — bump per-host.
+  timeout_seconds: 1800
+  transfers: 4
+  checkers: 8
+  extra_args: []
+
+sources:
+  # Inventory DB — the single most-important artefact to off-machine.
+  - name: inventory-db
+    source: "/home/operator/.local/share/steward/inventory.db"
+    destination: "/Volumes/Backup/_steward-mirror/inventory.db"
+    mode: copy
+    excludes: []
+    includes: []
+    enabled: true
+
+  # User-data dir (runs/, snapshots/, workspace/, execution-log/).
+  # Excludes ephemeral caches that don't need replication.
+  - name: user-data
+    source: "/home/operator/.local/share/steward/"
+    destination: "/Volumes/Backup/_steward-mirror/user-data/"
+    mode: copy
+    excludes:
+      - "**/__pycache__/**"
+      - "**/.DS_Store"
+      - "**/*.cache"
+    includes: []
+    enabled: true

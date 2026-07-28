@@ -1,0 +1,54 @@
+version: 1
+kind: RetentionPolicy
+metadata:
+  name: bundled-default
+  description: >
+    Bundled retention defaults — noise paths Steward never acts on, and
+    the dedup-retire matrix used by `steward policy plan --policy retention.yml`.
+
+exclusions:
+  always_skip_substrings:
+    - "/@eaDir/"
+    - "@SynoResource"
+    - "@SynoEAStream"
+    - "/.Spotlight-V100/"
+    - "/.TemporaryItems/"
+    - "/.Trashes/"
+    - "/.fseventsd/"
+  no_promote_substrings:
+    - ".photoslibrary/"
+    - ".photolibrary/"
+    - ".migratedphotolibrary/"
+    - ".aplibrary/"
+    - ".apvault/"
+    - ".musiclibrary/"
+    - ".tvlibrary/"
+    - ".imovielibrary/"
+    - ".theater/"
+    - ".fcpbundle/"
+    - "/iPhoto Library/"
+    - "/Aperture Library/"
+    - "/Photo Booth Library/"
+  basename_prefixes: ["._"]
+  basename_exact: [".DS_Store", ".apdisk", ".localized"]
+
+dedup_retire:
+  strategy: keep-highest-priority-tier
+  tier_priority:
+    boot: 0
+    L1: 1
+    L1w: 2
+    L2: 3
+    L3a: 4
+    DropboxStorage: 5
+    Backup: 6
+  live_tiers: [boot, L1, L1w, L2, L3a, DropboxStorage]
+  cooling_off_days: 7
+  stash_roots:
+    boot: "${HOME}/_dedup-retire-stash"
+    L1: "/Volumes/Level 1/_dedup-retire-stash"
+    L1w: "/Volumes/Level 1w/_dedup-retire-stash"
+    L2: "/Volumes/Level 2/_dedup-retire-stash"
+    L3a: "/Volumes/Level_3a/_dedup-retire-stash"
+    DropboxStorage: "/Volumes/DropboxStorage/_dedup-retire-stash"
+  nas_manifest_tiers: [Backup]
