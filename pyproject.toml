@@ -68,6 +68,10 @@ src = ["src"]
 select = ["E", "F", "W", "I", "BLE001"]
 ignore = ["E501"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["steward"]
+known-third-party = ["mcp"]
+
 [tool.ruff.lint.per-file-ignores]
 "src/steward/cli/main.py" = ["E402", "BLE001"]
 "**/tests/**" = ["BLE001"]
