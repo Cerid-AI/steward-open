@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """``steward classify`` — assign domain + classification labels to claims."""
+
 from __future__ import annotations
 
 from pathlib import Path

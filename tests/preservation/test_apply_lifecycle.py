@@ -5,6 +5,7 @@
 Each test asserts a property that, if relaxed, would compromise the
 operator-in-the-loop contract. Don't relax these without an ADR.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -54,12 +55,7 @@ def test_apply_execute_moves_file_and_audits(preservation_env: dict[str, Path]) 
 
     con = connect(preservation_env["db"], read_only=True, load_vec=False)
     try:
-        actions = [
-            row[0]
-            for row in con.execute(
-                "SELECT action FROM audit_log ORDER BY id ASC"
-            )
-        ]
+        actions = [row[0] for row in con.execute("SELECT action FROM audit_log ORDER BY id ASC")]
     finally:
         con.close()
     assert actions == ["apply_start", "stash_committed", "apply_end"]

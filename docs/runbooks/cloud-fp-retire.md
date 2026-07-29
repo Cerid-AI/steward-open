@@ -8,12 +8,17 @@ where same-FS stash rename is wrong (ADR-0014 / ADR-0015).
 ## Preconditions
 
 1. Inventory scanned and classified.
-2. FP **settled** — not mid-relocation / reindex:
+2. Run `steward fp status` — expect `cloud_retire_ready=yes` for cloud intent
+   (external-drive layout is OK; residual Domains.plist “unlinked” is a warning).
+3. FP **settled** — not mid-relocation / reindex (optional limited dump):
    ```bash
-   fileproviderctl dump -l <provider> | grep -E 'reconciliation|pending-indexable'
+   fileproviderctl dump -l com.getdropbox.dropbox.fileprovider | head
    ```
-3. Confirm account trash/version-history window (not always 30 days).
-4. Prefer a small dry-run batch first.
+4. Confirm account trash/version-history window (not always 30 days).
+5. Prefer a small dry-run batch first.
+
+For store/mount fork, conflict folders, and rescan order see
+[`dropbox-rectification.md`](dropbox-rectification.md).
 
 ## Plan
 
@@ -27,11 +32,11 @@ steward apply --manifest /tmp/dropbox-retire.tsv --dry-run
 ## Execute (cloud-propagating — default)
 
 ```bash
-# Verifies on store path; unlinks on ~/Library/CloudStorage/Dropbox/...
-steward apply --manifest /tmp/dropbox-retire.tsv --execute
+# verify==unlink on mount (ADR-0015); gate layout health:
+steward apply --manifest /tmp/dropbox-retire.tsv --execute --require-fp-healthy
 
 # Bulk (trusted inventory hashes):
-steward apply --manifest /tmp/dropbox-retire.tsv --execute --skip-verify
+steward apply --manifest /tmp/dropbox-retire.tsv --execute --require-fp-healthy --skip-verify
 ```
 
 ## Execute (local-only reclaim)

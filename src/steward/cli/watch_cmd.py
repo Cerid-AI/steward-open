@@ -19,6 +19,7 @@ Two run modes:
   ``--idle-seconds``), processes it, and exits. Used by tests and
   scheduled runs.
 """
+
 from __future__ import annotations
 
 import signal
@@ -65,14 +66,12 @@ def watch_cmd(
     once: bool = typer.Option(
         False,
         "--once",
-        help="Process the first non-empty batch and exit. Used by tests "
-        "and scheduled runs.",
+        help="Process the first non-empty batch and exit. Used by tests and scheduled runs.",
     ),
     include_containers: bool = typer.Option(
         False,
         "--include-containers",
-        help="Treat .zip / .tar* arrivals as containers and record "
-        "member-level claims.",
+        help="Treat .zip / .tar* arrivals as containers and record member-level claims.",
     ),
 ) -> None:
     """Watch ``--root`` and refresh inventory claims as files change."""
@@ -120,9 +119,7 @@ def watch_cmd(
             total_batches += 1
             total_files_seen += len(paths)
             if not paths:
-                console.print(
-                    f"  batch {total_batches}: {len(batch)} events (all deletes — skipping scan)"
-                )
+                console.print(f"  batch {total_batches}: {len(batch)} events (all deletes — skipping scan)")
                 if once:
                     break
                 continue
@@ -145,10 +142,7 @@ def watch_cmd(
                 break
     finally:
         watcher.stop()
-        console.print(
-            f"[green]✓[/green] watcher stopped "
-            f"(batches={total_batches}, files_seen={total_files_seen})"
-        )
+        console.print(f"[green]✓[/green] watcher stopped (batches={total_batches}, files_seen={total_files_seen})")
 
 
 __all__ = ["app"]

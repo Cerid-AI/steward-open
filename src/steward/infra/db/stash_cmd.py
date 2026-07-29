@@ -8,6 +8,7 @@ in-flight stash entry until a matching ``stash_finalized`` or
 source path. The audit chain stays the source of truth — there's no
 separate "stash entries" table.
 """
+
 from __future__ import annotations
 
 import json
@@ -313,6 +314,7 @@ def _find_canonical_outside(
     current claim falls inside an excluded prefix.
     """
     import sqlite3
+
     assert isinstance(con, sqlite3.Connection)
     cur = con.execute(
         """

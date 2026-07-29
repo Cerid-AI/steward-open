@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """``steward import`` subcommand group — legacy DB ingest."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,7 +13,9 @@ from steward.infra.db.admin import migrate, resolve_machine_id
 from steward.infra.db.settings import inventory_db_path
 from steward.infra.importer.legacy_unified import import_legacy
 
-app = typer.Typer(name="import", help="Ingest legacy data sources (sprawl-audit unified-hash.db, …).", no_args_is_help=True)
+app = typer.Typer(
+    name="import", help="Ingest legacy data sources (sprawl-audit unified-hash.db, …).", no_args_is_help=True
+)
 console = Console()
 
 

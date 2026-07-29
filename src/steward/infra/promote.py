@@ -19,6 +19,7 @@ Crash safety: write to ``<dst>.inflight``, fsync, ``os.rename`` to final.
 Aborts past the partial write leave the ``.inflight`` file behind (cleaned
 up by ``steward apply`` start-of-row pre-check) but never touch ``<dst>``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -49,9 +50,7 @@ def _hash_file_blake3(path: Path) -> tuple[str, int]:
     return hash_file_by_algo(path, algo="blake3", chunk_size=_HASH_CHUNK)
 
 
-def _hash_file_by_permanode(
-    con: sqlite3.Connection, permanode_id: str, path: Path
-) -> tuple[str, int, str]:
+def _hash_file_by_permanode(con: sqlite3.Connection, permanode_id: str, path: Path) -> tuple[str, int, str]:
     """Look up the permanode's recorded algo and hash ``path`` accordingly.
 
     Returns ``(hex_digest, size_bytes, algo)``. Falls back to blake3
@@ -123,9 +122,7 @@ def promote_with_verify(
     # Idempotency check: if dst already exists, decide skip vs mismatch.
     if dst.exists():
         try:
-            existing_hash, existing_size, _algo = _hash_file_by_permanode(
-                con, permanode_id, dst
-            )
+            existing_hash, existing_size, _algo = _hash_file_by_permanode(con, permanode_id, dst)
         except OSError as exc:
             log_swallowed_error("promote.hash_existing", exc, context={"dst": str(dst)})
             raise ManifestError(f"promote: cannot hash existing destination: {exc}") from exc

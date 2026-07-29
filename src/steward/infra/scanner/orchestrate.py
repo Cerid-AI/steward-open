@@ -5,6 +5,7 @@
 Operator-facing helper so the CLI doesn't need to know about
 ``infra.db.connect`` directly (import-linter contract).
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -15,9 +16,7 @@ from steward.infra.scanner.incremental import scan_paths
 from steward.infra.scanner.walker import ScanStats, scan_root
 
 
-def find_latest_finished_run(
-    *, db_path: Path, root: Path, machine_id: str
-) -> int | None:
+def find_latest_finished_run(*, db_path: Path, root: Path, machine_id: str) -> int | None:
     """Look up the most recent FINISHED scan_run for this (root, machine_id).
 
     "Finished" means ``finished_at IS NOT NULL`` — abandoned (crashed) scans
@@ -70,9 +69,7 @@ def run_scan(
     """
     resume_from = None
     if resume:
-        resume_from = find_latest_finished_run(
-            db_path=db_path, root=root, machine_id=machine_id
-        )
+        resume_from = find_latest_finished_run(db_path=db_path, root=root, machine_id=machine_id)
 
     con = connect(db_path)
     try:

@@ -20,6 +20,7 @@ are swallowed via ``log_swallowed_error`` — those inventories are
 silently skipped and the operator sees them as MISSING when they
 run ``steward db imports list``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -107,17 +108,13 @@ def attach_imports(
     con = connect(db_path, read_only=read_only_local, load_vec=False)
     ctx = AttachContext(connection=con)
     try:
-        rows = con.execute(
-            "SELECT machine_id, file_path FROM attached_inventories"
-        ).fetchall()
+        rows = con.execute("SELECT machine_id, file_path FROM attached_inventories").fetchall()
         for row in rows:
             machine_id = str(row[0])
             file_path = Path(str(row[1]))
             alias = _alias_for(machine_id)
             try:
-                con.execute(
-                    f"ATTACH DATABASE 'file:{file_path}?mode=ro' AS {alias}"
-                )
+                con.execute(f"ATTACH DATABASE 'file:{file_path}?mode=ro' AS {alias}")
             except sqlite3.OperationalError as exc:  # noqa: BLE001
                 log_swallowed_error(
                     "infra.sync.attach.attach",

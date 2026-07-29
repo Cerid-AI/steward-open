@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Repository — permanodes table access."""
+
 from __future__ import annotations
 
 import sqlite3

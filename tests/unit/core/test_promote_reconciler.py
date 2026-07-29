@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Unit tests for the PromotionPolicy reconciler."""
+
 from __future__ import annotations
 
 import pytest
@@ -105,10 +106,7 @@ def test_phase_name_filter(policy: PromotionPolicy) -> None:
 
 def test_max_files_caps_output(policy: PromotionPolicy) -> None:
     pids = [chr(ord("a") + i) * 32 for i in range(5)]
-    claims = [
-        _snap(i, pids[i], "Backup", f"/Volumes/Backup/song{i}.mp3", domain="music")
-        for i in range(5)
-    ]
+    claims = [_snap(i, pids[i], "Backup", f"/Volumes/Backup/song{i}.mp3", domain="music") for i in range(5)]
     m = reconcile_promote(claims=claims, policy=policy, steward_version="t", max_files=2)
     assert len(m.rows) == 2
 
@@ -178,9 +176,7 @@ def test_mirror_strip_prefix_preserves_subdirs() -> None:
     claims = [_snap(1, pid, "Backup", src, domain="photos")]
     policy = _mirror_policy(mirror_strip_prefix="/Volumes/Backup/")
     m = reconcile_promote(claims=claims, policy=policy, steward_version="t")
-    assert m.rows[0].destination_path == (
-        "/Volumes/Level 2/Photos-Heritage/Clones/Mac/Photos/2024/IMG_001.jpg"
-    )
+    assert m.rows[0].destination_path == ("/Volumes/Level 2/Photos-Heritage/Clones/Mac/Photos/2024/IMG_001.jpg")
 
 
 def test_mirror_from_overrides_strip_prefix() -> None:

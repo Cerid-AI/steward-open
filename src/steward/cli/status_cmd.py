@@ -19,6 +19,7 @@ Two output modes:
 
 Read-only. Never writes; never invokes external tools.
 """
+
 from __future__ import annotations
 
 import json
@@ -97,9 +98,7 @@ def _render_stash(report: StatusReport) -> Table:
     return t
 
 
-def _render_adapter(
-    report: StatusReport, *, attr: str, title: str
-) -> Table:
+def _render_adapter(report: StatusReport, *, attr: str, title: str) -> Table:
     t = Table(show_header=False, title=title, title_justify="left")
     t.add_column("k")
     t.add_column("v", justify="right")
@@ -177,14 +176,10 @@ def status_cmd(
         if json_output:
             print(json.dumps({"error": f"inventory.db not found at {target}"}))
             raise typer.Exit(2)
-        console.print(
-            f"[yellow]inventory.db missing at {target} — running migrate first[/yellow]"
-        )
+        console.print(f"[yellow]inventory.db missing at {target} — running migrate first[/yellow]")
         migrate(target)
 
-    report = collect_status(
-        db_path=target, quick=quick, refresh_rollups=refresh
-    )
+    report = collect_status(db_path=target, quick=quick, refresh_rollups=refresh)
 
     if json_output:
         print(json.dumps(status_to_dict(report)))
@@ -194,10 +189,7 @@ def status_cmd(
 
     console.print(_render_inventory(report))
     if report.rollups is not None and report.rollups.used_cache:
-        console.print(
-            f"[dim]inventory counts from rollup cache "
-            f"(refreshed {report.rollups.refreshed_at})[/dim]"
-        )
+        console.print(f"[dim]inventory counts from rollup cache (refreshed {report.rollups.refreshed_at})[/dim]")
     elif refresh:
         console.print("[dim]inventory rollups refreshed[/dim]")
     console.print(_render_latest_scan(report))

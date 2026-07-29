@@ -15,6 +15,7 @@ sha256 is preserved on legacy claims as a compatibility column.
 Both hashes are computed over the raw file bytes; no path / metadata
 hashing. Streaming chunks let us hash files larger than RAM.
 """
+
 from __future__ import annotations
 
 import hashlib

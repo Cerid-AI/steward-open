@@ -6,6 +6,7 @@ XDG-style defaults are layered through ``platformdirs``; ``STEWARD_DATA_DIR``
 takes priority. The path is *resolved* (not created) — callers that need
 the file decide whether to ``mkdir -p`` the parent.
 """
+
 from __future__ import annotations
 
 import os

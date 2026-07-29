@@ -17,6 +17,7 @@ Password handling:
 * Neither: the user gets a non-zero exit + restic's own complaint.
   Steward never reads / echoes / persists the actual password.
 """
+
 from __future__ import annotations
 
 import json

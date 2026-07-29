@@ -18,11 +18,17 @@ Tier semantics (Steward v0.1, macOS-first):
 * ``other-volume`` — any other ``/Volumes/*`` mount (catch-all)
 * ``unknown``    — empty or unrecognized path
 """
+
 from __future__ import annotations
 
 import re
 
 _OTHER_VOLUME_RE = re.compile(r"^/Volumes/([^/]+)/")
+
+# Dropbox File Provider user-facing mount under CloudStorage (any home).
+# Must be matched *before* the /Users boot rule. Includes multi-account
+# suffixes such as Dropbox-Personal.
+_CLOUDSTORAGE_DROPBOX_RE = re.compile(r"/Library/CloudStorage/Dropbox(?:-[^/]+)?(?:/|$)")
 
 
 def classify_tier(path: str) -> tuple[str, str]:
@@ -34,6 +40,9 @@ def classify_tier(path: str) -> tuple[str, str]:
     """
     if not path:
         return ("unknown", "")
+    # Dropbox CloudStorage mount (ADR-0015) — before /Users → boot.
+    if _CLOUDSTORAGE_DROPBOX_RE.search(path):
+        return ("DropboxStorage", "Dropbox_CloudStorage")
     if path.startswith("/Users/"):
         return ("boot", "boot-Users")
     if path.startswith("/private/") or path.startswith("/var/"):

@@ -16,6 +16,7 @@ thin shim that:
    returns them after ``debounce_seconds`` of quiet — typical for a
    batch ``rsync`` or ``cp -R`` operation.
 """
+
 from __future__ import annotations
 
 import logging

@@ -23,6 +23,7 @@ Watchers run in their own thread (or process). The protocol exposes
 ``start`` / ``stop`` for lifecycle and ``drain`` for cooperative polling
 in a CLI loop.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -89,9 +90,7 @@ class EventBatch:
     def is_empty(self) -> bool:
         return not self.events
 
-    def unique_paths(
-        self, *, drop_deleted: bool = True
-    ) -> tuple[Path, ...]:
+    def unique_paths(self, *, drop_deleted: bool = True) -> tuple[Path, ...]:
         """Return deduplicated paths from the batch, source-first.
 
         ``drop_deleted`` excludes paths for :attr:`EventKind.DELETED`

@@ -18,6 +18,7 @@ Three kinds are recognised in v0.1:
 
 Each starts with ``version: 1`` and a ``kind`` discriminator.
 """
+
 from __future__ import annotations
 
 from typing import Literal
@@ -25,8 +26,16 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 Tier = Literal[
-    "boot", "L1", "L1w", "L2", "L3a", "DropboxStorage", "Backup",
-    "BOOTCAMP", "other-volume", "unknown",
+    "boot",
+    "L1",
+    "L1w",
+    "L2",
+    "L3a",
+    "DropboxStorage",
+    "Backup",
+    "BOOTCAMP",
+    "other-volume",
+    "unknown",
 ]
 
 

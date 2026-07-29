@@ -13,6 +13,7 @@ confirmation is structural.
 Bind defaults to ``127.0.0.1`` so the page is never reachable from
 the network without explicit opt-in (``--host 0.0.0.0``).
 """
+
 from __future__ import annotations
 
 import webbrowser
@@ -39,9 +40,7 @@ def dashboard_cmd(
         "--host",
         help="Bind address. Default loopback-only; pass 0.0.0.0 to expose to LAN.",
     ),
-    port: int = typer.Option(
-        8080, "--port", help="TCP port to bind."
-    ),
+    port: int = typer.Option(8080, "--port", help="TCP port to bind."),
     refresh_seconds: int = typer.Option(
         30,
         "--refresh-seconds",
@@ -63,26 +62,19 @@ def dashboard_cmd(
     """Serve the dashboard until interrupted."""
     target = inventory_db_path()
     if not target.exists():
-        console.print(
-            f"[yellow]inventory.db missing at {target} — running migrate first[/yellow]"
-        )
+        console.print(f"[yellow]inventory.db missing at {target} — running migrate first[/yellow]")
         migrate(target)
 
     url = f"http://{host}:{port}/"
     console.print(f"[green]✓[/green] dashboard listening on {url}")
     mode = "quick" if quick else "full"
-    console.print(
-        f"  read-only ({mode}) — JSON at "
-        f"http://{host}:{port}/status.json · Ctrl-C to stop"
-    )
+    console.print(f"  read-only ({mode}) — JSON at http://{host}:{port}/status.json · Ctrl-C to stop")
 
     if open_browser:
         try:
             webbrowser.open(url)
         except Exception as exc:  # noqa: BLE001 — best-effort
-            console.print(
-                f"[dim]could not open browser: {exc}[/dim]"
-            )
+            console.print(f"[dim]could not open browser: {exc}[/dim]")
 
     try:
         run_dashboard(

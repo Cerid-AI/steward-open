@@ -19,6 +19,7 @@ Reconcilers:
 * :func:`reconcile_promote` — PromotionPolicy + Backup-only permanodes →
   promote manifest with destination paths from ``phases[*].destination_root``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -161,9 +162,7 @@ def reconcile_dedup_retire(
                 # ADR-0014/0015: never same-FS stash on cloud-FP tiers.
                 action = "retire_direct"
                 destination = None
-                destination_tier = CLOUD_FP_COOLING_OFF.get(
-                    c.tier, "cloud-fp-external-trash"
-                )
+                destination_tier = CLOUD_FP_COOLING_OFF.get(c.tier, "cloud-fp-external-trash")
             elif c.tier in live_set:
                 action = "stash"
                 destination = _stash_destination(c.file_path, c.tier, run_id, policy)
@@ -219,9 +218,7 @@ def _stash_destination(
     if not stash_root:
         # Fallback: same-dir stash. Works for any tier, just less tidy
         # than the policy-prescribed central stash root.
-        return str(
-            PurePosixPath(source_path).parent / "_cooling-off-stash" / manifest_run_id / basename(source_path)
-        )
+        return str(PurePosixPath(source_path).parent / "_cooling-off-stash" / manifest_run_id / basename(source_path))
     # Drop ``${HOME}`` etc. literally — expansion is the apply-side job
     # (operator config decides what $HOME resolves to in the live env).
     return str(PurePosixPath(stash_root) / manifest_run_id / basename(source_path))
@@ -296,7 +293,7 @@ def _apply_path_translations(path: str, policy: PromotionPolicy) -> str:
     """Apply the policy's ``path_translations`` to a path; first match wins."""
     for t in policy.defaults.path_translations:
         if path.startswith(t.src):
-            return t.dst + path[len(t.src):]
+            return t.dst + path[len(t.src) :]
     return path
 
 
@@ -327,19 +324,17 @@ def _resolve_destination(
     if mirror_from:
         idx = translated_source.rfind(mirror_from)
         if idx >= 0:
-            suffix = translated_source[idx + len(mirror_from):].lstrip("/")
+            suffix = translated_source[idx + len(mirror_from) :].lstrip("/")
             if suffix:
                 return f"{root}/{suffix}"
     if mirror_strip_prefix and translated_source.startswith(mirror_strip_prefix):
-        suffix = translated_source[len(mirror_strip_prefix):].lstrip("/")
+        suffix = translated_source[len(mirror_strip_prefix) :].lstrip("/")
         if suffix:
             return f"{root}/{suffix}"
     return f"{root}/{translated_source.rsplit('/', 1)[-1]}"
 
 
-def _backup_only_permanodes(
-    claims: list[ClaimSnapshot], source_tier: str
-) -> dict[str, list[ClaimSnapshot]]:
+def _backup_only_permanodes(claims: list[ClaimSnapshot], source_tier: str) -> dict[str, list[ClaimSnapshot]]:
     """Return permanode_id → [snapshots on source_tier] for permanodes that
     appear ONLY on ``source_tier`` (no live-tier copy)."""
     by_pid: dict[str, list[ClaimSnapshot]] = {}

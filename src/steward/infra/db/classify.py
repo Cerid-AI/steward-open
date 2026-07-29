@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Classify-pass facade — load policy, walk claims, update domain + classification."""
+
 from __future__ import annotations
 
 import logging
@@ -41,9 +42,7 @@ def classify_claims(
     target = (db_path or inventory_db_path()).expanduser()
     policy = load_policy(policy_path)
     if not isinstance(policy, ClassificationPolicy):
-        raise TypeError(
-            f"classify_claims requires a ClassificationPolicy YAML; got {type(policy).__name__}"
-        )
+        raise TypeError(f"classify_claims requires a ClassificationPolicy YAML; got {type(policy).__name__}")
     classifier = Classifier(policy)
     machine_id = resolve_machine_id(target)
 
@@ -52,10 +51,7 @@ def classify_claims(
         if reclassify_all:
             cur = con.execute("SELECT id, file_path FROM claims")
         else:
-            cur = con.execute(
-                "SELECT id, file_path FROM claims "
-                "WHERE domain IS NULL OR classification IS NULL"
-            )
+            cur = con.execute("SELECT id, file_path FROM claims WHERE domain IS NULL OR classification IS NULL")
 
         rows = list(cur)
         domain_updated = 0

@@ -6,6 +6,7 @@ Per ADR-0002, ``apply`` without an explicit ``--dry-run`` or ``--execute``
 flag exits 2. This is structural, not configurable: the operator-in-the-loop
 contract demands an explicit decision before any mutation.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,7 +18,9 @@ from steward.infra.db.admin import resolve_machine_id
 from steward.infra.db.apply import ApplyRefused, apply_manifest
 from steward.infra.db.settings import inventory_db_path
 
-app = typer.Typer(name="apply", help="Apply a plan manifest (--dry-run or --execute required).", invoke_without_command=True)
+app = typer.Typer(
+    name="apply", help="Apply a plan manifest (--dry-run or --execute required).", invoke_without_command=True
+)
 console = Console()
 
 
@@ -79,22 +82,25 @@ def apply_cmd(
     if require_fp_healthy:
         from steward.infra.fp_preflight import (
             fp_health_problems,
+            fp_health_warnings,
             manifest_needs_fp_health,
         )
 
         if manifest_needs_fp_health(manifest):
             problems = fp_health_problems(prefer_mount_unlink=prefer_mount)
+            warnings = fp_health_warnings(prefer_mount_unlink=prefer_mount)
             if problems:
-                console.print(
-                    "[red]✗[/red] --require-fp-healthy: cloud-FP pre-flight failed:"
-                )
+                console.print("[red]✗[/red] --require-fp-healthy: cloud-FP pre-flight failed:")
                 for p in problems:
                     console.print(f"  • {p}")
                 console.print(
-                    "[dim]Run `steward fp status`. Dropbox tree rectification "
-                    "is deferred — see docs/OPEN_DEVELOPMENT.md.[/dim]"
+                    "[dim]Run `steward fp status`. See "
+                    "docs/field-notes-2026-07-28-dropbox-rectification.md "
+                    "and docs/OPEN_DEVELOPMENT.md.[/dim]"
                 )
                 raise typer.Exit(2)
+            for w in warnings:
+                console.print(f"[yellow]⚠[/yellow]  FP: {w}")
 
     target = inventory_db_path()
     machine_id = resolve_machine_id(target)

@@ -17,6 +17,7 @@ Six subcommands, each with optional ``--json`` for scripted consumers:
 The aggregators sit in :mod:`steward.infra.stats`; this module is
 purely formatting + the typer wiring.
 """
+
 from __future__ import annotations
 
 import json
@@ -50,9 +51,7 @@ console = Console()
 def _ensure_db_ready() -> Path:
     target = inventory_db_path()
     if not target.exists():
-        console.print(
-            f"[yellow]inventory.db missing at {target} — running migrate first[/yellow]"
-        )
+        console.print(f"[yellow]inventory.db missing at {target} — running migrate first[/yellow]")
         migrate(target)
     return target
 
@@ -66,8 +65,7 @@ def stats_root(
     include_imports: bool = typer.Option(
         False,
         "--include-imports",
-        help="Aggregate across local + every attached inventory's "
-        "claims (ADR-0013). Default is local-only.",
+        help="Aggregate across local + every attached inventory's claims (ADR-0013). Default is local-only.",
     ),
     json_output: bool = typer.Option(
         False,
@@ -95,8 +93,7 @@ def stats_root(
         lp = rep.largest_permanode
         head.add_row(
             "largest_permanode",
-            f"{_format_bytes(lp.size_bytes)} "
-            f"({lp.current_claim_count}× current)",
+            f"{_format_bytes(lp.size_bytes)} ({lp.current_claim_count}× current)",
         )
     console.print(head)
 
@@ -137,7 +134,8 @@ def stats_root(
 @app.command("by-tier")
 def by_tier_cmd(
     include_imports: bool = typer.Option(
-        False, "--include-imports",
+        False,
+        "--include-imports",
         help="Aggregate across attached inventories too (ADR-0013).",
     ),
     json_output: bool = typer.Option(False, "--json"),
@@ -166,7 +164,8 @@ def by_tier_cmd(
 @app.command("by-domain")
 def by_domain_cmd(
     include_imports: bool = typer.Option(
-        False, "--include-imports",
+        False,
+        "--include-imports",
         help="Aggregate across attached inventories too (ADR-0013).",
     ),
     json_output: bool = typer.Option(False, "--json"),
@@ -196,14 +195,18 @@ def by_domain_cmd(
 def extensions_cmd(
     limit: int = typer.Option(20, "--limit", min=1),
     include_imports: bool = typer.Option(
-        False, "--include-imports",
+        False,
+        "--include-imports",
         help="Aggregate across attached inventories too (ADR-0013).",
     ),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     """Top ``--limit`` file extensions by total bytes."""
     target = _ensure_db_ready()
-    rows = by_extension(        db_path=target, limit=limit, include_imports=include_imports,
+    rows = by_extension(
+        db_path=target,
+        limit=limit,
+        include_imports=include_imports,
     )
     if json_output:
         print(json.dumps([asdict(r) for r in rows], default=str))
@@ -225,14 +228,18 @@ def extensions_cmd(
 def classifications_cmd(
     limit: int = typer.Option(20, "--limit", min=1),
     include_imports: bool = typer.Option(
-        False, "--include-imports",
+        False,
+        "--include-imports",
         help="Aggregate across attached inventories too (ADR-0013).",
     ),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     """Top ``--limit`` classifications by claim count."""
     target = _ensure_db_ready()
-    rows = by_classification(        db_path=target, limit=limit, include_imports=include_imports,
+    rows = by_classification(
+        db_path=target,
+        limit=limit,
+        include_imports=include_imports,
     )
     if json_output:
         print(json.dumps([asdict(r) for r in rows], default=str))
@@ -260,16 +267,17 @@ def duplicates_cmd(
         help="Only surface permanodes with at least this many current claims.",
     ),
     include_imports: bool = typer.Option(
-        False, "--include-imports",
-        help="Aggregate across attached inventories too (ADR-0013). "
-        "Reveals cross-machine duplicates.",
+        False,
+        "--include-imports",
+        help="Aggregate across attached inventories too (ADR-0013). Reveals cross-machine duplicates.",
     ),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     """Permanodes with the most current claims — the dedup-candidate list."""
     target = _ensure_db_ready()
     rows = duplicate_permanodes(
-        db_path=target,        limit=limit,
+        db_path=target,
+        limit=limit,
         min_claims=min_claims,
         include_imports=include_imports,
     )

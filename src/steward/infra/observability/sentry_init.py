@@ -15,6 +15,7 @@ Kept:
 - ``_traces_sampler`` — trivial for v0.1 (no transactions); kept as scaffold
   for v0.2 daemon traffic
 """
+
 from __future__ import annotations
 
 import os
@@ -78,9 +79,7 @@ def _rate_limited(event: Event) -> bool:
         if len(ts_list) >= _RATE_LIMIT_MAX:
             return True
         ts_list.append(now)
-        for stale in [
-            k for k, v in _rate_limit_state.items() if v and now - v[-1] > _RATE_LIMIT_TTL_S
-        ]:
+        for stale in [k for k, v in _rate_limit_state.items() if v and now - v[-1] > _RATE_LIMIT_TTL_S]:
             del _rate_limit_state[stale]
         return False
 
@@ -126,8 +125,7 @@ def init_sentry() -> bool:
 
     sentry_sdk.init(
         dsn=dsn,
-        environment=os.getenv("STEWARD_ENVIRONMENT")
-        or os.getenv("SENTRY_ENVIRONMENT", "development"),
+        environment=os.getenv("STEWARD_ENVIRONMENT") or os.getenv("SENTRY_ENVIRONMENT", "development"),
         release=os.getenv("STEWARD_VERSION") or os.getenv("SENTRY_RELEASE"),
         traces_sampler=_traces_sampler,
         before_send=_before_send,

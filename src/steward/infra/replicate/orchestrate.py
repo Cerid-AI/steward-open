@@ -7,6 +7,7 @@ Opens the inventory DB connection, loads + validates the policy, runs
 pattern in :mod:`steward.infra.scanner.orchestrate` so the CLI doesn't
 need to know about ``infra.db.connect`` directly.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -47,10 +48,7 @@ def run_replicate(
     """Open ``db_path``, load the policy, run replication, commit."""
     loaded = load_policy(policy_path)
     if not isinstance(loaded, ReplicationPolicy):
-        raise ValueError(
-            f"policy at {policy_path} is not a ReplicationPolicy "
-            f"(got {type(loaded).__name__})"
-        )
+        raise ValueError(f"policy at {policy_path} is not a ReplicationPolicy (got {type(loaded).__name__})")
 
     con = connect(db_path)
     try:

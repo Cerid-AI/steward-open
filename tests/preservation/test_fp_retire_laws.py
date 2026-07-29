@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Preservation: cloud-FP retire path laws (ADR-0014 / 0015)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -61,8 +62,6 @@ def test_reconciler_dropbox_is_retire_direct_not_stash() -> None:
             size_bytes=10,
         ),
     ]
-    m = reconcile_dedup_retire(
-        claims=claims, policy=policy, steward_version="test"
-    )
+    m = reconcile_dedup_retire(claims=claims, policy=policy, steward_version="test")
     assert len(m.rows) == 1
     assert m.rows[0].action == "retire_direct"

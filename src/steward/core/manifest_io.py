@@ -17,6 +17,7 @@ The header carries provenance + the ``manifest_run_id`` UUID; every
 audit row produced by ``steward apply`` against this manifest carries
 the same id, so the chain ties back.
 """
+
 from __future__ import annotations
 
 import csv
@@ -65,17 +66,19 @@ def write_manifest(path: Path, manifest: Manifest) -> None:
         w = csv.writer(f, dialect="excel-tab")
         w.writerow(_COLUMNS)
         for row in manifest.rows:
-            w.writerow([
-                row.action,
-                row.permanode_id,
-                row.canonical_hash,
-                row.size_bytes,
-                row.source_path,
-                row.source_tier,
-                row.destination_path or "",
-                row.destination_tier or "",
-                row.rationale,
-            ])
+            w.writerow(
+                [
+                    row.action,
+                    row.permanode_id,
+                    row.canonical_hash,
+                    row.size_bytes,
+                    row.source_path,
+                    row.source_tier,
+                    row.destination_path or "",
+                    row.destination_tier or "",
+                    row.rationale,
+                ]
+            )
 
 
 def read_manifest(path: Path) -> Manifest:
@@ -98,9 +101,7 @@ def read_manifest(path: Path) -> Manifest:
                 data_lines.append(line)
 
     if not saw_version:
-        raise ManifestError(
-            f"Manifest header missing version marker '{MANIFEST_VERSION}': {path}"
-        )
+        raise ManifestError(f"Manifest header missing version marker '{MANIFEST_VERSION}': {path}")
 
     meta = _parse_header(header_lines)
     if not data_lines or not data_lines[0]:
@@ -109,9 +110,7 @@ def read_manifest(path: Path) -> Manifest:
     reader = csv.reader(data_lines, dialect="excel-tab")
     cols = next(reader)
     if tuple(cols) != _COLUMNS:
-        raise ManifestError(
-            f"Manifest columns {tuple(cols)} != expected {_COLUMNS}"
-        )
+        raise ManifestError(f"Manifest columns {tuple(cols)} != expected {_COLUMNS}")
 
     rows: list[ManifestRow] = []
     for row_cells in reader:

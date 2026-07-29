@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """``steward stash`` subcommand group — list / finalize / restore / verify."""
+
 from __future__ import annotations
 
 import csv
@@ -120,8 +121,7 @@ def verify_cmd(
         return
     console.print(f"  total                  = {counts['total']:,}")
     console.print(f"  [green]ok[/green]                    = {counts['ok']:,}")
-    for st in ("dst-missing", "src-still-present", "no-canonical-elsewhere",
-               "no-permanode", "error"):
+    for st in ("dst-missing", "src-still-present", "no-canonical-elsewhere", "no-permanode", "error"):
         n = counts.get(st, 0)
         if n:
             console.print(f"  [red]{st:<22}[/red] = {n:,}")
@@ -130,23 +130,22 @@ def verify_cmd(
         out.parent.mkdir(parents=True, exist_ok=True)
         with open(out, "w", newline="") as f:
             w = csv.writer(f, delimiter="\t", lineterminator="\n")
-            w.writerow(["status", "source_path", "destination_path",
-                        "permanode_id", "canonical_path", "error"])
+            w.writerow(["status", "source_path", "destination_path", "permanode_id", "canonical_path", "error"])
             for r in results:
-                w.writerow([
-                    r.status,
-                    r.source_path,
-                    r.destination_path,
-                    r.permanode_id or "",
-                    r.canonical_path or "",
-                    r.error or "",
-                ])
+                w.writerow(
+                    [
+                        r.status,
+                        r.source_path,
+                        r.destination_path,
+                        r.permanode_id or "",
+                        r.canonical_path or "",
+                        r.error or "",
+                    ]
+                )
         console.print(f"  report: {out}")
 
     n_bad = counts["total"] - counts["ok"]
     if n_bad:
-        console.print(
-            f"[red]verdict: BLOCKED — {n_bad} entry/entries in a non-ok state[/red]"
-        )
+        console.print(f"[red]verdict: BLOCKED — {n_bad} entry/entries in a non-ok state[/red]")
         raise typer.Exit(1)
     console.print("[green]verdict: SAFE TO FINALIZE[/green]")

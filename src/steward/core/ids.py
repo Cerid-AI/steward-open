@@ -17,6 +17,7 @@ The colon delimiter prevents the ``("xyz", 12)`` and ``("xyz12", "")``
 collision where two distinct ``canonical_hash || size_bytes`` strings
 collapse to the same byte sequence.
 """
+
 from __future__ import annotations
 
 import blake3 as _blake3

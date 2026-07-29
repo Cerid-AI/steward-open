@@ -1,6 +1,6 @@
 # ADR 0011: MCP write surface — destructive hints + audit marker
 
-**Status:** Accepted
+**Status:** Accepted (partially superseded for apply by **ADR-0016**)  
 **Date:** 2026-05-16
 
 ## Context

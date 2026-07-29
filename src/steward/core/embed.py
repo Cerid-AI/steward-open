@@ -16,6 +16,7 @@ Vector dimension is fixed at module level (384) to match the
 ``embeddings_vec`` virtual table in schema 0001. Changing the dimension
 requires a migration; see ADR-0008.
 """
+
 from __future__ import annotations
 
 import array
@@ -71,18 +72,14 @@ class Embedding:
 def to_blob(vector: tuple[float, ...]) -> bytes:
     """Pack a vector into the float32-little-endian byte blob ``vec0`` expects."""
     if len(vector) != EMBEDDING_DIMENSION:
-        raise ValueError(
-            f"vector dimension {len(vector)} != {EMBEDDING_DIMENSION}"
-        )
+        raise ValueError(f"vector dimension {len(vector)} != {EMBEDDING_DIMENSION}")
     return array.array("f", vector).tobytes()
 
 
 def from_blob(blob: bytes) -> tuple[float, ...]:
     """Unpack a float32 blob back into a tuple of floats."""
     if len(blob) != EMBEDDING_DIMENSION * 4:
-        raise ValueError(
-            f"blob size {len(blob)} != {EMBEDDING_DIMENSION * 4} bytes"
-        )
+        raise ValueError(f"blob size {len(blob)} != {EMBEDDING_DIMENSION * 4} bytes")
     arr = array.array("f")
     arr.frombytes(blob)
     return tuple(arr)
@@ -135,9 +132,7 @@ class EmbedderProtocol(Protocol):
 
     def embed(self, request: EmbedRequest) -> Embedding: ...
 
-    def embed_batch(
-        self, requests: list[EmbedRequest]
-    ) -> list[Embedding]: ...
+    def embed_batch(self, requests: list[EmbedRequest]) -> list[Embedding]: ...
 
 
 __all__ = [

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Tests for :mod:`steward.core.tiers`."""
+
 from __future__ import annotations
 
 import pytest
@@ -19,7 +20,7 @@ from steward.core.tiers import (
     ("path", "expected_tier", "expected_volume"),
     [
         ("", "unknown", ""),
-        ("/home/operator/x.txt", "boot", "boot-Users"),
+        ("/Users/sunrunner/x.txt", "boot", "boot-Users"),
         ("/private/etc/hosts", "boot", "boot-system"),
         ("/var/log/x.log", "boot", "boot-system"),
         ("/Volumes/Level 1/foo", "L1", "Level_1"),
@@ -30,6 +31,27 @@ from steward.core.tiers import (
         ("/Volumes/Backup/foo", "Backup", "Backup"),
         ("/Volumes/NFS-Backup/foo", "Backup", "Backup"),
         ("/Volumes/DropboxStorage/x", "DropboxStorage", "DropboxStorage"),
+        (
+            "/Volumes/DropboxStorage/.CloudStorage/Data/Dropbox/a.bin",
+            "DropboxStorage",
+            "DropboxStorage",
+        ),
+        (
+            "/Users/sunrunner/Library/CloudStorage/Dropbox/a.bin",
+            "DropboxStorage",
+            "Dropbox_CloudStorage",
+        ),
+        (
+            "/Users/sunrunner/Library/CloudStorage/Dropbox-Personal/a.bin",
+            "DropboxStorage",
+            "Dropbox_CloudStorage",
+        ),
+        # Non-Dropbox under CloudStorage stays boot (under /Users).
+        (
+            "/Users/sunrunner/Library/CloudStorage/OneDrive/x",
+            "boot",
+            "boot-Users",
+        ),
         ("/Volumes/BOOTCAMP/x", "BOOTCAMP", "BOOTCAMP"),
         ("/Volumes/SomeOtherDisk/x", "other-volume", "SomeOtherDisk"),
         ("/tmp/x", "unknown", ""),

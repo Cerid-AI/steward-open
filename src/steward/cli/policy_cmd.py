@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """``steward policy`` subcommand group — lint, show, plan."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -34,9 +35,7 @@ def lint_cmd(
 
 @app.command("show")
 def show_cmd(
-    name: str = typer.Argument(
-        ..., help="Bundled policy name (e.g. 'retention.yml') OR a filesystem path."
-    ),
+    name: str = typer.Argument(..., help="Bundled policy name (e.g. 'retention.yml') OR a filesystem path."),
 ) -> None:
     """Print the bundled policy YAML; useful when the operator wants to
     copy it as a starting point for an override under

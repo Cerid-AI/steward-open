@@ -6,6 +6,7 @@ Core subcommands are always registered. Lab/macOS-heavy adapters
 (``photos``, ``schedule``) register only when their modules import
 successfully so the open-core extract can omit those packages.
 """
+
 from __future__ import annotations
 
 import importlib

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Inspect facade — fetch a permanode + claims + recent audit by hash or path."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -60,9 +61,7 @@ def inspect(
         # Fast path: single-schema lookup (preserves v0.2.12 surface).
         con = connect(db, read_only=True, load_vec=False)
         try:
-            return _inspect_single_schema(
-                con, target, audit_limit=audit_limit
-            )
+            return _inspect_single_schema(con, target, audit_limit=audit_limit)
         finally:
             con.close()
 
@@ -76,9 +75,7 @@ def inspect(
         resolution_schema = ""
         if permanode_row is None:
             for schema in ctx.attached:
-                permanode_row = _resolve_permanode_in_schema(
-                    ctx.connection, target, schema.alias
-                )
+                permanode_row = _resolve_permanode_in_schema(ctx.connection, target, schema.alias)
                 if permanode_row is not None:
                     source = "attached"
                     resolution_schema = f"{schema.alias}."
@@ -90,9 +87,7 @@ def inspect(
 
         # Claims fan-out: collect from local + every attached schema.
         all_claims: list[dict[str, Any]] = []
-        for schema_label, prefix in [("local", "")] + [
-            ("attached", f"{s.alias}.") for s in ctx.attached
-        ]:
+        for schema_label, prefix in [("local", "")] + [("attached", f"{s.alias}.") for s in ctx.attached]:
             claims_sql = (
                 f"SELECT id, machine_id, file_path, tier, volume, domain, "
                 f"classification, size_bytes, observed_at, is_current "
@@ -114,9 +109,7 @@ def inspect(
         # the noise bounded; the operator sees the most-recent across
         # all schemas merged.
         audit_rows: list[dict[str, Any]] = []
-        for schema_label, prefix in [("local", "")] + [
-            ("attached", f"{s.alias}.") for s in ctx.attached
-        ]:
+        for schema_label, prefix in [("local", "")] + [("attached", f"{s.alias}.") for s in ctx.attached]:
             audit_sql = (
                 f"SELECT id, timestamp, action, actor, payload_json "
                 f"FROM {prefix}audit_log "  # nosec B608 — prefix from controlled allowlist
@@ -150,9 +143,7 @@ def inspect(
         )
 
 
-def _inspect_single_schema(
-    con: Any, target: str, *, audit_limit: int
-) -> InspectResult | None:
+def _inspect_single_schema(con: Any, target: str, *, audit_limit: int) -> InspectResult | None:
     permanode_row = _resolve_permanode(con, target)
     if permanode_row is None:
         return None
@@ -193,17 +184,27 @@ def _inspect_single_schema(
     )
 
 
-def _resolve_permanode_in_schema(
-    con: Any, target: str, alias: str
-) -> tuple[str, str, str, int, str, str] | None:
+def _resolve_permanode_in_schema(con: Any, target: str, alias: str) -> tuple[str, str, str, int, str, str] | None:
     """Same shape as :func:`_resolve_permanode` but against an attached schema."""
     target_lower = target.lower()
-    # nosec B608 — alias from controlled allowlist
+    # alias is from controlled allowlist (attached schema), not user SQL.
     for sql, param in [
-        (f"SELECT id, canonical_hash, canonical_hash_algo, size_bytes, first_seen_at, last_seen_at FROM {alias}.permanodes WHERE id = ?", target),  # nosec B608
-        (f"SELECT id, canonical_hash, canonical_hash_algo, size_bytes, first_seen_at, last_seen_at FROM {alias}.permanodes WHERE canonical_hash = ?", target_lower),  # nosec B608
-        (f"SELECT p.id, p.canonical_hash, p.canonical_hash_algo, p.size_bytes, p.first_seen_at, p.last_seen_at FROM {alias}.hashes h JOIN {alias}.permanodes p ON p.id = h.permanode_id WHERE h.hex = ? LIMIT 1", target_lower),  # nosec B608
-        (f"SELECT p.id, p.canonical_hash, p.canonical_hash_algo, p.size_bytes, p.first_seen_at, p.last_seen_at FROM {alias}.claims c JOIN {alias}.permanodes p ON p.id = c.permanode_id WHERE c.file_path = ? ORDER BY c.is_current DESC, c.id DESC LIMIT 1", target),  # nosec B608
+        (
+            f"SELECT id, canonical_hash, canonical_hash_algo, size_bytes, first_seen_at, last_seen_at FROM {alias}.permanodes WHERE id = ?",  # nosec B608
+            target,
+        ),
+        (
+            f"SELECT id, canonical_hash, canonical_hash_algo, size_bytes, first_seen_at, last_seen_at FROM {alias}.permanodes WHERE canonical_hash = ?",  # nosec B608
+            target_lower,
+        ),
+        (
+            f"SELECT p.id, p.canonical_hash, p.canonical_hash_algo, p.size_bytes, p.first_seen_at, p.last_seen_at FROM {alias}.hashes h JOIN {alias}.permanodes p ON p.id = h.permanode_id WHERE h.hex = ? LIMIT 1",  # nosec B608
+            target_lower,
+        ),
+        (
+            f"SELECT p.id, p.canonical_hash, p.canonical_hash_algo, p.size_bytes, p.first_seen_at, p.last_seen_at FROM {alias}.claims c JOIN {alias}.permanodes p ON p.id = c.permanode_id WHERE c.file_path = ? ORDER BY c.is_current DESC, c.id DESC LIMIT 1",  # nosec B608
+            target,
+        ),
     ]:
         try:
             row = con.execute(sql, (param,)).fetchone()

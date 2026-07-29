@@ -42,7 +42,7 @@ dedup_retire:
   live_tiers: [boot, L1, L1w, L2, L3a, DropboxStorage]
   cooling_off_days: 7
   stash_roots:
-    boot: "/home/operator/_recovered-redundant-stash"
+    boot: "/Users/sunrunner/_recovered-redundant-stash"
     L1: "/Volumes/Level 1/_recovered-redundant-stash"
     L2: "/Volumes/Level 2/_recovered-redundant-stash"
     L3a: "/Volumes/Level_3a/_recovered-redundant-stash"

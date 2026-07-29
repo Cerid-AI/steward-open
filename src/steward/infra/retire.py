@@ -17,19 +17,21 @@ tiers a same-FS stash rename is wrong (the sync agent sees two
 events and "retires" the file by uploading it to a fresh cloud
 path). Direct unlink is the right semantic.
 
-**ADR-0015 path policy:** for Dropbox FP paths, verify prefers the
-store materialization (reliable stats) and unlink prefers the
-user-facing mount (cloud propagation). Opt out with
-``prefer_mount_unlink=False`` (CLI: ``--allow-store-path-unlink``).
+**ADR-0015 path policy:** verify path == unlink path always. Default
+cloud-propagating mode uses the **mount** for both; local reclaim uses
+the claim path (``prefer_mount_unlink=False`` /
+``--allow-store-path-unlink``).
 
 See ADR-0014 + ADR-0015 for the full reasoning + decision context.
 """
+
 from __future__ import annotations
 
+import errno
 import logging
 import sqlite3
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from steward.core.errors import FPUnavailableError, ManifestError
 from steward.core.fp_paths import claim_path_aliases, resolve_fp_paths
@@ -49,6 +51,42 @@ def _hash_file(path: Path, *, algo: str, chunk_size: int = 1 << 20) -> str:
     return hex_d
 
 
+def _is_fp_timeout(exc: BaseException) -> bool:
+    """True for macOS File Provider congestion (Errno 60 / TimeoutError)."""
+    if isinstance(exc, TimeoutError):
+        return True
+    if isinstance(exc, OSError) and getattr(exc, "errno", None) in (
+        errno.ETIMEDOUT,
+        60,  # ETIMEDOUT on Darwin when not mapped
+    ):
+        return True
+    return False
+
+
+def _reraise_fp_or_manifest(
+    exc: OSError,
+    *,
+    path: Path,
+    used_mount: bool,
+    op: str,
+) -> NoReturn:
+    """Re-raise mount-path FP timeouts as :class:`FPUnavailableError`.
+
+    Apply catches FPUnavailableError per-row so one congested CloudStorage
+    path does not abort a multi-row batch (see integration test
+    ``test_retire_direct_fp_timeout_defers_row_not_aborting``).
+    """
+    if used_mount and _is_fp_timeout(exc):
+        raise FPUnavailableError(
+            f"retire_direct: File Provider {op} timed out for {path} ({exc}); retry once the FP has settled"
+        ) from exc
+    if used_mount:
+        raise FPUnavailableError(
+            f"retire_direct: File Provider {op} failed for {path} ({exc}); retry once the FP has settled"
+        ) from exc
+    raise ManifestError(f"retire_direct: cannot {op} {path}: {exc}") from exc
+
+
 def _existing_other_claims(
     con: sqlite3.Connection,
     *,
@@ -66,13 +104,14 @@ def _existing_other_claims(
         excluded_paths = ("",)
     placeholders = ",".join("?" for _ in excluded_paths)
     rows = con.execute(
+        # placeholders are only "?" markers — values bound separately.
         f"""
         SELECT id, tier, file_path, machine_id
         FROM claims
         WHERE permanode_id = ? AND is_current = 1
           AND file_path NOT IN ({placeholders})
         ORDER BY id ASC
-        """,
+        """,  # nosec B608
         (permanode_id, *excluded_paths),
     ).fetchall()
     return [
@@ -129,9 +168,7 @@ def retire_direct(
     On execute: ``Path.unlink()`` + audit-row append + claim is_current → 0.
     """
     claim_str = str(source_path)
-    resolution = resolve_fp_paths(
-        claim_str, prefer_mount_unlink=prefer_mount_unlink
-    )
+    resolution = resolve_fp_paths(claim_str, prefer_mount_unlink=prefer_mount_unlink)
     # Logic law: verify and unlink are the same path (ADR-0015 amended).
     op_path = Path(resolution.unlink_path)
     if Path(resolution.verify_path) != op_path:
@@ -141,20 +178,14 @@ def retire_direct(
         )
     aliases = claim_path_aliases(claim_str)
 
+    used_mount = resolution.used_mount_for_unlink
     try:
         present = op_path.exists()
     except OSError as exc:
-        if resolution.used_mount_for_unlink:
-            raise FPUnavailableError(
-                f"retire_direct: File Provider stat failed for {op_path} "
-                f"({exc}); retry once the FP has settled"
-            ) from exc
-        raise ManifestError(
-            f"retire_direct: cannot stat {op_path}: {exc}"
-        ) from exc
+        _reraise_fp_or_manifest(exc, path=op_path, used_mount=used_mount, op="stat")
 
     if not present:
-        if resolution.used_mount_for_unlink and claim_str != str(op_path):
+        if used_mount and claim_str != str(op_path):
             # Store-only inventory is common; mount missing → cannot do
             # cloud-propagating delete without guessing a forked twin.
             raise ManifestError(
@@ -165,28 +196,37 @@ def retire_direct(
                 f"(cloud trash / quota not guaranteed — ADR-0015)."
             )
         raise ManifestError(f"retire_direct: source not found: {op_path}")
-    if not op_path.is_file():
-        raise ManifestError(
-            f"retire_direct: source is not a regular file: {op_path}"
-        )
+    try:
+        is_file = op_path.is_file()
+    except OSError as exc:
+        _reraise_fp_or_manifest(exc, path=op_path, used_mount=used_mount, op="stat")
+    if not is_file:
+        raise ManifestError(f"retire_direct: source is not a regular file: {op_path}")
 
     check_path = op_path
     unlink_path = op_path
 
     algo: str | None = None
     if verify:
-        actual_size = check_path.stat().st_size
+        try:
+            actual_size = check_path.stat().st_size
+        except OSError as exc:
+            _reraise_fp_or_manifest(exc, path=check_path, used_mount=used_mount, op="stat")
         if actual_size != expected_size_bytes:
             raise ManifestError(
-                f"retire_direct: size mismatch for {check_path}: "
-                f"expected {expected_size_bytes} got {actual_size}"
+                f"retire_direct: size mismatch for {check_path}: expected {expected_size_bytes} got {actual_size}"
             )
         algo_row = con.execute(
             "SELECT canonical_hash_algo FROM permanodes WHERE id = ?",
             (permanode_id,),
         ).fetchone()
         algo = str(algo_row[0]) if algo_row is not None else "blake3"
-        actual_hash = _hash_file(check_path, algo=algo)
+        try:
+            actual_hash = _hash_file(check_path, algo=algo)
+        except OSError as exc:
+            # Hashing the mount path is the common FP timeout surface
+            # (open/read Errno 60) during dry-run verify.
+            _reraise_fp_or_manifest(exc, path=check_path, used_mount=used_mount, op="hash")
         if actual_hash != expected_canonical_hash:
             raise ManifestError(
                 f"retire_direct: hash mismatch for {check_path}: "
@@ -205,7 +245,7 @@ def retire_direct(
         "source_path": claim_str,
         "verify_path": str(check_path),
         "unlink_path": str(unlink_path),
-        "used_mount_for_unlink": resolution.used_mount_for_unlink,
+        "used_mount_for_unlink": used_mount,
         "fp_tier_hint": resolution.tier_hint,
         "canonical_hash": expected_canonical_hash,
         "size_bytes": expected_size_bytes,
@@ -221,9 +261,7 @@ def retire_direct(
         payload["sample_other_claims"] = other_claims[:5]
 
     resolved_permanode_id: str | None = permanode_id
-    row = con.execute(
-        "SELECT 1 FROM permanodes WHERE id = ?", (permanode_id,)
-    ).fetchone()
+    row = con.execute("SELECT 1 FROM permanodes WHERE id = ?", (permanode_id,)).fetchone()
     if row is None:
         payload["manifest_permanode_id"] = permanode_id
         resolved_permanode_id = None
@@ -236,22 +274,20 @@ def retire_direct(
         unlink_path.unlink()
     except TimeoutError as exc:
         raise FPUnavailableError(
-            f"retire_direct: File Provider delete timed out for {unlink_path} "
-            f"({exc}); retry once the FP has settled"
+            f"retire_direct: File Provider delete timed out for {unlink_path} ({exc}); retry once the FP has settled"
         ) from exc
     except FileNotFoundError as exc:
         # Race: existed at check time, gone at unlink — treat as error.
-        raise ManifestError(
-            f"retire_direct: unlink path disappeared before delete: {unlink_path}"
-        ) from exc
+        raise ManifestError(f"retire_direct: unlink path disappeared before delete: {unlink_path}") from exc
 
     placeholders = ",".join("?" for _ in aliases)
     con.execute(
+        # placeholders are only "?" markers — values bound separately.
         f"""
         UPDATE claims SET is_current = 0
         WHERE permanode_id = ? AND is_current = 1
           AND file_path IN ({placeholders})
-        """,
+        """,  # nosec B608
         (permanode_id, *aliases),
     )
     repo_audit.append(

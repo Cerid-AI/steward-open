@@ -25,6 +25,7 @@ Tool annotations on the FastMCP side mark each write tool with
 ``destructiveHint=True``. Real clients (Claude Desktop, etc.) surface
 this as a confirmation UI so the operator stays in the loop.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -39,9 +40,7 @@ from steward.infra.archive.orchestrate import (
 from steward.infra.archive.orchestrate import (
     run_snapshot as run_archive_snapshot,
 )
-from steward.infra.db import repo_audit
 from steward.infra.db.admin import migrate, resolve_machine_id
-from steward.infra.db.connect import connect
 from steward.infra.db.settings import inventory_db_path
 from steward.infra.db.stash_cmd import finalize_stash, restore_stash
 from steward.infra.replicate.orchestrate import (
@@ -68,20 +67,11 @@ def _mcp_invoke_audit(
     args: dict[str, Any],
 ) -> None:
     """Append the ``mcp_write_invoked`` row that flags this run as
-    MCP-driven. Independent transaction from the orchestrator's chain
-    so a failure in the orchestrator doesn't void this row."""
-    con = connect(db_path)
-    try:
-        repo_audit.append(
-            con,
-            machine_id=machine_id,
-            actor="steward-mcp",
-            action="mcp_write_invoked",
-            payload={"tool": tool, "args": args},
-        )
-        con.commit()
-    finally:
-        con.close()
+    MCP-driven. Delegates to :func:`record_mcp_write_invoked`.
+    """
+    from steward.infra.mcp.capability import record_mcp_write_invoked
+
+    record_mcp_write_invoked(db_path=db_path, machine_id=machine_id, tool=tool, args=args)
 
 
 # ─────────────────────── replication ──────────────────────────
@@ -91,6 +81,9 @@ def replicate_dry_run(*, policy: str = "replication.yml") -> dict[str, Any]:
     """Run ``steward replicate run --dry-run`` from MCP. Read-side
     semantics — rclone sees ``--dry-run`` so neither end mutates.
     Recorded with action=mcp_write_invoked for traceability."""
+    from steward.infra.mcp.capability import McpMode, require_mode
+
+    require_mode(McpMode.PLAN, tool="replicate_dry_run")
     db_path, machine_id = _ensure_db_and_machine()
     policy_path = resolve_replicate_policy_path(policy)
     _mcp_invoke_audit(
@@ -112,6 +105,9 @@ def replicate_execute(*, policy: str = "replication.yml") -> dict[str, Any]:
     """Run ``steward replicate run --execute`` from MCP. **Destructive** —
     mutates each replication target. Clients should surface a
     confirmation UI before invoking."""
+    from steward.infra.mcp.capability import McpMode, require_mode
+
+    require_mode(McpMode.WRITE, tool="replicate_execute")
     db_path, machine_id = _ensure_db_and_machine()
     policy_path = resolve_replicate_policy_path(policy)
     _mcp_invoke_audit(
@@ -149,9 +145,7 @@ def _serialise_replicate_report(report: Any) -> dict[str, Any]:
                 "dry_run": s.dry_run,
                 "skipped": s.skipped,
                 "returncode": s.result.returncode if s.result else None,
-                "duration_seconds": (
-                    s.result.duration_seconds if s.result else None
-                ),
+                "duration_seconds": (s.result.duration_seconds if s.result else None),
                 "stats": s.result.stats if s.result else {},
             }
             for s in report.sources
@@ -162,10 +156,11 @@ def _serialise_replicate_report(report: Any) -> dict[str, Any]:
 # ─────────────────────── archive ──────────────────────────
 
 
-def archive_snapshot_dry_run(
-    *, policy: str = "archive.yml"
-) -> dict[str, Any]:
+def archive_snapshot_dry_run(*, policy: str = "archive.yml") -> dict[str, Any]:
     """``restic backup --dry-run`` for each source. Read-side semantics."""
+    from steward.infra.mcp.capability import McpMode, require_mode
+
+    require_mode(McpMode.PLAN, tool="archive_snapshot_dry_run")
     db_path, machine_id = _ensure_db_and_machine()
     policy_path = resolve_archive_policy_path(policy)
     _mcp_invoke_audit(
@@ -183,11 +178,12 @@ def archive_snapshot_dry_run(
     return _serialise_archive_snapshot_report(report)
 
 
-def archive_snapshot_execute(
-    *, policy: str = "archive.yml"
-) -> dict[str, Any]:
+def archive_snapshot_execute(*, policy: str = "archive.yml") -> dict[str, Any]:
     """**Destructive** — writes new snapshots to restic repositories.
     Clients must surface confirmation UI."""
+    from steward.infra.mcp.capability import McpMode, require_mode
+
+    require_mode(McpMode.WRITE, tool="archive_snapshot_execute")
     db_path, machine_id = _ensure_db_and_machine()
     policy_path = resolve_archive_policy_path(policy)
     _mcp_invoke_audit(
@@ -224,14 +220,8 @@ def _serialise_archive_snapshot_report(report: Any) -> dict[str, Any]:
                 "dry_run": s.dry_run,
                 "skipped": s.skipped,
                 "returncode": s.result.returncode if s.result else None,
-                "snapshot_id": (
-                    s.result.summary.get("snapshot_id")
-                    if s.result
-                    else None
-                ),
-                "data_added": (
-                    s.result.summary.get("data_added", 0) if s.result else 0
-                ),
+                "snapshot_id": (s.result.summary.get("snapshot_id") if s.result else None),
+                "data_added": (s.result.summary.get("data_added", 0) if s.result else 0),
             }
             for s in report.sources
         ],
@@ -241,6 +231,9 @@ def _serialise_archive_snapshot_report(report: Any) -> dict[str, Any]:
 def archive_init_execute(*, policy: str = "archive.yml") -> dict[str, Any]:
     """**Destructive** — creates new encrypted restic repositories.
     One-time setup per repo; clients must surface confirmation UI."""
+    from steward.infra.mcp.capability import McpMode, require_mode
+
+    require_mode(McpMode.WRITE, tool="archive_init_execute")
     db_path, machine_id = _ensure_db_and_machine()
     policy_path = resolve_archive_policy_path(policy)
     _mcp_invoke_audit(
@@ -280,6 +273,9 @@ def stash_finalize_execute(
     """**Destructive** — permanently deletes stashed files for ``run_id``.
     Refuses entries younger than ``cooling_off_days`` unless ``force=True``.
     Clients must surface confirmation UI before calling."""
+    from steward.infra.mcp.capability import McpMode, require_mode
+
+    require_mode(McpMode.WRITE, tool="stash_finalize_execute")
     db_path, machine_id = _ensure_db_and_machine()
     _mcp_invoke_audit(
         db_path=db_path,
@@ -313,6 +309,9 @@ def stash_restore_execute(*, run_id: str) -> dict[str, Any]:
     the filesystem, so we still mark ``destructiveHint=True`` to keep
     the client-side confirmation flow consistent.
     """
+    from steward.infra.mcp.capability import McpMode, require_mode
+
+    require_mode(McpMode.WRITE, tool="stash_restore_execute")
     db_path, machine_id = _ensure_db_and_machine()
     _mcp_invoke_audit(
         db_path=db_path,

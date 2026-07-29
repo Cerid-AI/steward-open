@@ -11,6 +11,7 @@ The format is versioned via :data:`WIRE_FORMAT_VERSION` — bump it
 whenever the envelope shape or required fields change. v1 is the
 shape ADR-0013 specifies.
 """
+
 from __future__ import annotations
 
 import json
@@ -85,12 +86,15 @@ class WireManifest(BaseModel):
         Stable formatting matters for both human review and the
         blake3 included in the envelope's ``checksums.txt``.
         """
-        return json.dumps(
-            self.model_dump(),
-            sort_keys=True,
-            indent=2,
-            separators=(",", ": "),
-        ) + "\n"
+        return (
+            json.dumps(
+                self.model_dump(),
+                sort_keys=True,
+                indent=2,
+                separators=(",", ": "),
+            )
+            + "\n"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,10 +109,7 @@ class EnvelopeChecksums:
     payload_blake3: str
 
     def to_text(self) -> str:
-        return (
-            f"{self.payload_blake3}  inventory.db\n"
-            f"{self.manifest_blake3}  manifest.json\n"
-        )
+        return f"{self.payload_blake3}  inventory.db\n{self.manifest_blake3}  manifest.json\n"
 
 
 def load_manifest(path: Path) -> WireManifest:

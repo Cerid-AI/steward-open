@@ -5,6 +5,7 @@
 Operates on already-ingested claims (ADR-0010 — classification is deferred
 from ingest). The path is the only signal; mtime / size are ignored.
 """
+
 from __future__ import annotations
 
 import re
@@ -62,8 +63,7 @@ class Classifier:
     def __init__(self, policy: ClassificationPolicy) -> None:
         self._policy = policy
         self._cluster_compiled: list[tuple[str, list[re.Pattern[str]]]] = [
-            (entry.label, [re.compile(p) for p in entry.regex_any_of])
-            for entry in policy.clusters
+            (entry.label, [re.compile(p) for p in entry.regex_any_of]) for entry in policy.clusters
         ]
 
     def classify(self, path: str) -> Classification:

@@ -8,6 +8,7 @@ Supported actions: ``stash``, ``promote``, ``retire_direct`` (ADR-0014/0015),
 CLI-only lifecycle steps (``restore``, ``finalize_stash``, ``reclassify``)
 error with guidance rather than silent skip.
 """
+
 from __future__ import annotations
 
 import logging
@@ -59,8 +60,7 @@ class ApplyRefused(Exception):
 
     def __init__(self, result: "ApplyResult") -> None:
         super().__init__(
-            f"apply rejected: {len(result.rejected_imported_claims)} row(s) "
-            f"reference attached-only permanodes"
+            f"apply rejected: {len(result.rejected_imported_claims)} row(s) reference attached-only permanodes"
         )
         self.result = result
 
@@ -148,10 +148,7 @@ def _record_preflight_rejection(
     con = connect(inventory_db_path())
     try:
         for r in preflight.rejections:
-            messages.append(
-                f"row {r.row_index}: permanode {r.permanode_id[:16]}… "
-                f"({r.source_path}) — {r.reason}"
-            )
+            messages.append(f"row {r.row_index}: permanode {r.permanode_id[:16]}… ({r.source_path}) — {r.reason}")
             # Note: ``permanode_id`` is intentionally NOT passed as a
             # separate column — the audit_log row has a FK to local
             # permanodes, and the rejected permanode by definition
@@ -306,12 +303,16 @@ def _apply_with_con(
                 )
             else:
                 result.rows_errored += 1
-                result.errors.append(
-                    f"row {i}: action {row.action!r} is not supported by apply"
-                )
+                result.errors.append(f"row {i}: action {row.action!r} is not supported by apply")
         except FPUnavailableError as exc:
             # Cloud-FP tier congested/degraded — defer this row (no writes
             # happened for it) and keep the batch going. Retry on a settled FP.
+            result.rows_errored += 1
+            result.errors.append(f"row {i}: FP unavailable (retry later): {exc}")
+        except TimeoutError as exc:
+            # Belt-and-suspenders: raw Errno 60 that escaped retire_direct
+            # (should be rare after FP timeout mapping). Defer row; do not
+            # abort the whole apply batch.
             result.rows_errored += 1
             result.errors.append(f"row {i}: FP unavailable (retry later): {exc}")
         except ManifestError as exc:

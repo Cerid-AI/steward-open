@@ -6,6 +6,7 @@ Encapsulates the connect/commit lifecycle so the CLI doesn't import
 ``infra.db.connect`` (import-linter contract). Mirrors
 :mod:`steward.infra.scanner.orchestrate`.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

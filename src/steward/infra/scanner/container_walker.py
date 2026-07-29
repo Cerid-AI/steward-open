@@ -27,6 +27,7 @@ Errors per member are counted in :class:`ContainerStats` and surfaced via
 ``log_swallowed_error`` (the policy: a single bad member must not abort
 the scan).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -61,18 +62,30 @@ logger = logging.getLogger("steward.infra.scanner.container_walker")
 ZIP_EXTS: frozenset[str] = frozenset({".zip"})
 
 # Tar-like containers — including the multi-extension forms.
-TAR_EXTS: frozenset[str] = frozenset({
-    ".tar",
-    ".tgz", ".tar.gz",
-    ".tbz2", ".tar.bz2",
-    ".txz", ".tar.xz",
-})
+TAR_EXTS: frozenset[str] = frozenset(
+    {
+        ".tar",
+        ".tgz",
+        ".tar.gz",
+        ".tbz2",
+        ".tar.bz2",
+        ".txz",
+        ".tar.xz",
+    }
+)
 
 # Disk images — mounted via ``hdiutil`` on macOS (v0.2). Linux falls
 # through to ``containers_skipped`` because the tool isn't available.
-DISK_IMAGE_EXTS: frozenset[str] = frozenset({
-    ".dmg", ".sparseimage", ".sparsebundle", ".iso", ".img", ".cdr",
-})
+DISK_IMAGE_EXTS: frozenset[str] = frozenset(
+    {
+        ".dmg",
+        ".sparseimage",
+        ".sparsebundle",
+        ".iso",
+        ".img",
+        ".cdr",
+    }
+)
 
 # 7z / RAR — extracted via ``unar`` (The Unarchiver) on macOS (v0.2).
 # Linux falls through to ``containers_skipped`` likewise.
@@ -152,9 +165,7 @@ def _container_sha256(path: str) -> str | None:
                 h.update(buf)
         return h.hexdigest()
     except OSError as exc:
-        log_swallowed_error(
-            "scanner.container_walker.sha256", exc, context={"path": path}
-        )
+        log_swallowed_error("scanner.container_walker.sha256", exc, context={"path": path})
         return None
 
 
@@ -176,6 +187,7 @@ def _hash_member_stream(fh: IO[bytes]) -> HashResult:
     inline so we don't have to write the member to a temp file.
     """
     import xxhash
+
     h = xxhash.xxh3_128()
     total = 0
     while True:
@@ -245,7 +257,8 @@ def _walk_zip(
     except (zipfile.BadZipFile, OSError) as exc:
         stats.containers_errored += 1
         log_swallowed_error(
-            "scanner.container_walker.zip.open", exc,
+            "scanner.container_walker.zip.open",
+            exc,
             context={"path": container_path},
         )
         return
@@ -261,7 +274,8 @@ def _walk_zip(
             except (zipfile.BadZipFile, OSError) as exc:
                 stats.members_errored += 1
                 log_swallowed_error(
-                    "scanner.container_walker.zip.member", exc,
+                    "scanner.container_walker.zip.member",
+                    exc,
                     context={
                         "path": container_path,
                         "internal": info.filename,
@@ -300,7 +314,8 @@ def _walk_tar(
     except (tarfile.TarError, OSError) as exc:
         stats.containers_errored += 1
         log_swallowed_error(
-            "scanner.container_walker.tar.open", exc,
+            "scanner.container_walker.tar.open",
+            exc,
             context={"path": container_path},
         )
         return
@@ -318,7 +333,8 @@ def _walk_tar(
             except (tarfile.TarError, OSError) as exc:
                 stats.members_errored += 1
                 log_swallowed_error(
-                    "scanner.container_walker.tar.member", exc,
+                    "scanner.container_walker.tar.member",
+                    exc,
                     context={
                         "path": container_path,
                         "internal": member.name,
@@ -349,9 +365,7 @@ def _hash_file_xxh3(path: str) -> HashResult | None:
         with open(path, "rb") as fh:
             return _hash_member_stream(fh)
     except OSError as exc:
-        log_swallowed_error(
-            "scanner.container_walker.member_hash", exc, context={"path": path}
-        )
+        log_swallowed_error("scanner.container_walker.member_hash", exc, context={"path": path})
         return None
 
 
@@ -435,8 +449,7 @@ def _mounted_disk_image(container_path: str) -> Iterator[str]:
         )
         if proc.returncode != 0:
             raise OSError(
-                f"hdiutil attach failed (rc={proc.returncode}): "
-                f"{(proc.stderr or proc.stdout or '').strip()[:300]}"
+                f"hdiutil attach failed (rc={proc.returncode}): {(proc.stderr or proc.stdout or '').strip()[:300]}"
             )
         yield mountpoint
     finally:
@@ -489,10 +502,7 @@ def _unar_extracted(container_path: str) -> Iterator[str]:
             timeout=_UNAR_TIMEOUT_S,
         )
         if proc.returncode != 0:
-            raise OSError(
-                f"unar failed (rc={proc.returncode}): "
-                f"{(proc.stderr or proc.stdout or '').strip()[:300]}"
-            )
+            raise OSError(f"unar failed (rc={proc.returncode}): {(proc.stderr or proc.stdout or '').strip()[:300]}")
         yield workdir
     finally:
         shutil.rmtree(workdir, ignore_errors=True)

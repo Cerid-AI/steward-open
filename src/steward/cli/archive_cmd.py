@@ -15,6 +15,7 @@ Restic encryption keys live in the operator's keychain (or password
 file). Steward never reads them. The policy YAML supplies a
 ``password_command`` that restic invokes on demand.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -53,9 +54,7 @@ def _resolve_policy_or_exit(name: str) -> Path:
 def _ensure_db_ready() -> tuple[Path, str]:
     target = inventory_db_path()
     if not target.exists():
-        console.print(
-            f"[yellow]inventory.db missing at {target} — running migrate first[/yellow]"
-        )
+        console.print(f"[yellow]inventory.db missing at {target} — running migrate first[/yellow]")
         migrate(target)
     machine_id = resolve_machine_id(target)
     return target, machine_id
@@ -71,18 +70,12 @@ def snapshot_cmd(
         "--policy",
         help="Policy filename (bundled) or full path. Default: archive.yml.",
     ),
-    dry_run: bool = typer.Option(
-        False, "--dry-run", help="Pass --dry-run to restic — neither side mutates."
-    ),
-    execute: bool = typer.Option(
-        False, "--execute", help="Actually create a snapshot."
-    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Pass --dry-run to restic — neither side mutates."),
+    execute: bool = typer.Option(False, "--execute", help="Actually create a snapshot."),
 ) -> None:
     """Snapshot each enabled source into its repository."""
     if dry_run == execute:
-        console.print(
-            "[red]exactly one of --dry-run or --execute is required[/red]"
-        )
+        console.print("[red]exactly one of --dry-run or --execute is required[/red]")
         raise typer.Exit(2)
 
     policy_path = _resolve_policy_or_exit(policy)
@@ -100,9 +93,7 @@ def snapshot_cmd(
         raise typer.Exit(2) from exc
 
     mode_label = "dry-run" if dry_run else "execute"
-    console.print(
-        f"[green]✓[/green] archive snapshot ({mode_label}) — "
-        f"policy={policy_path.name}"    )
+    console.print(f"[green]✓[/green] archive snapshot ({mode_label}) — policy={policy_path.name}")
     console.print(f"  runs               = {report.runs}")
     console.print(f"  successes          = {report.successes}")
     if report.failures:
@@ -155,9 +146,7 @@ def list_cmd(
 
     if report.failures:
         for f in report.failures:
-            console.print(
-                f"[red]✗ {f['repository']}[/red]: rc={f['returncode']}"
-            )
+            console.print(f"[red]✗ {f['repository']}[/red]: rc={f['returncode']}")
 
     if not report.snapshots:
         console.print("[dim]no snapshots in any listed repository.[/dim]")
@@ -188,22 +177,16 @@ def list_cmd(
 
 @app.command("init")
 def init_cmd(
-    policy: str = typer.Option(
-        "archive.yml", "--policy", help="Policy filename or path."
-    ),
+    policy: str = typer.Option("archive.yml", "--policy", help="Policy filename or path."),
     execute: bool = typer.Option(
         False,
         "--execute",
-        help="Required to actually create the repository. Default rejects "
-        "(per ADR-0002).",
+        help="Required to actually create the repository. Default rejects (per ADR-0002).",
     ),
 ) -> None:
     """Initialize a restic repository for each unique repo declared in the policy."""
     if not execute:
-        console.print(
-            "[red]`steward archive init` requires --execute "
-            "(creates a new encrypted repository).[/red]"
-        )
+        console.print("[red]`steward archive init` requires --execute (creates a new encrypted repository).[/red]")
         raise typer.Exit(2)
 
     policy_path = _resolve_policy_or_exit(policy)
@@ -236,13 +219,12 @@ def init_cmd(
 
 @app.command("show")
 def show_cmd(
-    policy: str = typer.Option(
-        "archive.yml", "--policy", help="Policy filename or path."
-    ),
+    policy: str = typer.Option("archive.yml", "--policy", help="Policy filename or path."),
 ) -> None:
     """Print the resolved archive policy YAML."""
     policy_path = _resolve_policy_or_exit(policy)
     console.print(f"[dim]# {policy_path}[/dim]")
     console.print(policy_path.read_text(encoding="utf-8"))
+
 
 __all__ = ["app"]

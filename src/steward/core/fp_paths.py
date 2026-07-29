@@ -12,13 +12,17 @@ macOS File Providers expose content under two path families:
    (e.g. ``~/Library/CloudStorage/Dropbox/...``). Deletes here are
    recognized as user deletes and typically land in cloud trash.
 
-``retire_direct`` prefers the mount path for ``unlink()`` so cloud
-quota reclaim and external cooling-off work as designed. Scan claims
-may still record either form; this module normalizes between them.
+``retire_direct`` prefers the mount path for **both** verify and
+``unlink()`` (verify==unlink) so cloud-propagating deletes stay
+consistent. Scan claims may still record store or mount form; this
+module normalizes between them. External-drive FP (store on
+``/Volumes/DropboxStorage``, mount under CloudStorage) is a normal
+layout — different devices alone are not a mapping bug.
 
 Pure functions only — no I/O. Callers that need existence checks do
 that at the infra boundary.
 """
+
 from __future__ import annotations
 
 import os

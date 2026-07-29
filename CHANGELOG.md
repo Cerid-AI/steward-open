@@ -5,6 +5,106 @@ All notable changes to Steward will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.22] — 2026-07-29
+
+Cerid agent MCP integration: capability modes, plan tokens, gated apply_execute.
+
+### Added
+
+- **ADR-0016** — `STEWARD_MCP_MODE` (`read`/`plan`/`write`), `STEWARD_MCP_ACTOR`,
+  one-shot `plan_token` from `apply_dry_run`, MCP `apply_execute` with mandatory
+  `max_files` (cap via `STEWARD_MCP_MAX_FILES_CAP`, default 50).
+- **MCP tools:** `mcp_capability`, `status`, `scan_status`, `inspect_target`,
+  `apply_execute`; `apply_dry_run` gains `require_fp_healthy` + plan_token.
+- **`.mcp.json`** project registration (stdio) + `docs/CERID_AGENT_INTEGRATION.md`.
+
+### Changed
+
+- Destructive MCP execute tools require `STEWARD_MCP_MODE=write` (default remains
+  `plan` so external agents cannot ambient-execute).
+- `mcp_write_invoked` actor uses `STEWARD_MCP_ACTOR` when set.
+
+## [0.3.21] — 2026-07-29
+
+Field-hardened apply + scan visibility after Dropbox store rescan / FP congestion.
+
+### Fixed
+
+- **`retire_direct` verify-path FP timeouts** (`TimeoutError` / Errno 60 on
+  mount `stat`/`hash`) map to `FPUnavailableError` so apply defers that row
+  instead of aborting the whole batch (same posture as unlink timeout).
+- **Apply belt-and-suspenders:** bare `TimeoutError` from a row is deferred
+  per-row rather than unwinding the apply transaction.
+
+### Changed
+
+- **Serial scanner** commits the `scan_runs` + `scan_start` audit row **before**
+  walking (same as parallel workers). Operators see an unfinished run immediately
+  rather than only after the first mid-walk commit (`STEWARD_SCAN_COMMIT_EVERY`).
+
+### Docs / tooling
+
+- Dual-presence offline filter: `scripts/filter-plan-dual-presence.py`
+- Runbook: mount full-tree scan often impractical under FP hash timeouts;
+  store Preferences path is inventory authority; `--skip-verify` dry-run smoke.
+
+## [0.3.20] — 2026-07-28
+
+Scanner progress for multi-hour Dropbox trees; Dropbox rectification runbook.
+
+### Changed
+
+- **Scanner mid-walk commits** every 250 files (override
+  `STEWARD_SCAN_COMMIT_EVERY`; `0` disables). Parallel workers no longer hold a
+  single transaction for an entire top-level subtree — live `scan_runs`
+  counters bump and claims become visible during long walks.
+- **Runbook** `docs/runbooks/dropbox-rectification.md` +
+  `scripts/dropbox-post-scan.sh` (wait → mount scan → sample dry-run).
+
+## [0.3.19] — 2026-07-28
+
+Systemic Dropbox handling correction: external-drive FP is a healthy layout;
+health verdict separates hard fails from warnings.
+
+### Changed
+
+- **`classify_tier`:** `~/Library/CloudStorage/Dropbox` (and `Dropbox-*`) is
+  **DropboxStorage**, not boot — required for mount rescans.
+- **`fp status`:** structured `FPHealthVerdict` (`layout`, `cloud_retire_ready`,
+  `local_reclaim_ready`, problems vs warnings). Different `st_dev` and residual
+  Domains.plist "unlinked" / `FPFS_SHOULD_NOT_BE_USED` are **warnings** on
+  external-drive layouts when mount+store exist and dual samples are healthy.
+- **`--require-fp-healthy`:** hard-fails only on real cloud blockers (missing
+  mount, store-only samples, hard disconnect without dual roots). Prints
+  warnings (name divergence, residual domain metadata) without aborting.
+- ADR-0015 / retire docs: verify==unlink (not store-verify / mount-unlink).
+
+### Docs
+
+- Field notes + OPEN_DEVELOPMENT: Preferences store path + green client are
+  compatible with dual path families; re-link is not mandated by residual
+  Domains.plist alone.
+
+## [0.3.18] — 2026-07-28
+
+Dropbox rectification research pass: domain/unlinked detection, name-divergence probe, field notes.
+
+### Added
+
+- **`steward fp status`** — File Provider **Domains.plist** probe (connected /
+  unlinked, `DisconnectionReason`, `Path`, `SupportsSyncingTrash`);
+  `~/.dropbox/info.json` path; top-level **store vs mount basename divergence**.
+- **`apply --require-fp-healthy`** also fails on **unlinked/disconnected** Dropbox
+  domain and top-level name divergence (cloud-propagating intent).
+- **`docs/field-notes-2026-07-28-dropbox-rectification.md`** — inventory
+  provenance (legacy import), FP domain unlinked diagnosis, Selective Sync
+  Conflict split, operator repair protocol (no bulk path rewrite).
+
+### Changed
+
+- OPEN_DEVELOPMENT / ROADMAP: Dropbox workstream phase 1–2 research complete;
+  host re-link remains operator-led.
+
 ## [0.3.17] — 2026-07-28
 
 Open-core Phase 1 stage extract, audit cold export, weekly inventory export schedule.

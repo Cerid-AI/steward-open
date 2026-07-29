@@ -14,6 +14,7 @@ If the operator's query is embedded by a *different* model than the
 stored rows, the recall would be meaningless — the writer's
 ``(model_name, model_version)`` filter prevents that mismatch.
 """
+
 from __future__ import annotations
 
 import sqlite3

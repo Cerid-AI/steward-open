@@ -1,16 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Read-only handlers behind the MCP tool surface.
+"""MCP handlers — inventory query, plan dry-runs, and gated apply_execute.
 
-Each function opens its own read-only connection (cheap on SQLite WAL)
-and returns a JSON-friendly dict so the FastMCP wrapper can serialise
-straight through. The handlers are pure: same db_path + same args →
-same output.
-
-Connection cleanup is in a try/finally — a partial fetch never leaks a
-connection. The connection is opened with ``read_only=True`` so even a
-bug in a handler cannot mutate the DB.
+Read helpers open SQLite with ``read_only=True``. Plan/execute helpers
+may write plan TSVs, plan tokens, and audit rows (ADR-0011/0016).
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -29,9 +24,7 @@ def _ro(db_path: Path) -> sqlite3.Connection:
 # ─────────────────────── aggregate stats ──────────────────────────
 
 
-def inventory_stats(
-    db_path: Path, *, include_imports: bool = False
-) -> dict[str, Any]:
+def inventory_stats(db_path: Path, *, include_imports: bool = False) -> dict[str, Any]:
     """Return top-level counts: permanodes, claims, scan_runs, by-tier,
     by-domain. Acts as a "is the inventory alive" smoke test that
     LLM clients can poll cheaply.
@@ -70,9 +63,7 @@ def inventory_stats(
 # ─────────────────────── search by path / hash ──────────────────────────
 
 
-def find_permanode_by_path(
-    db_path: Path, *, path_substring: str, limit: int = 10
-) -> list[dict[str, Any]]:
+def find_permanode_by_path(db_path: Path, *, path_substring: str, limit: int = 10) -> list[dict[str, Any]]:
     """Return current claims whose ``file_path`` contains ``path_substring``.
 
     Matches are case-sensitive (the underlying SQLite collation default).
@@ -108,9 +99,7 @@ def find_permanode_by_path(
     ]
 
 
-def find_permanode_by_hash(
-    db_path: Path, *, hash_prefix: str, limit: int = 10
-) -> list[dict[str, Any]]:
+def find_permanode_by_hash(db_path: Path, *, hash_prefix: str, limit: int = 10) -> list[dict[str, Any]]:
     """Look up permanodes whose ``canonical_hash`` starts with the given prefix.
 
     Useful when the operator only has a partial hash from an audit row.
@@ -141,9 +130,7 @@ def find_permanode_by_hash(
     ]
 
 
-def get_permanode(
-    db_path: Path, *, permanode_id: str, include_imports: bool = False
-) -> dict[str, Any]:
+def get_permanode(db_path: Path, *, permanode_id: str, include_imports: bool = False) -> dict[str, Any]:
     """Return permanode header + all current claims + recent audit entries.
 
     The shape is consciously close to what ``steward inspect`` prints —
@@ -159,8 +146,7 @@ def get_permanode(
         con = _ro(db_path)
         try:
             head = con.execute(
-                "SELECT id, canonical_hash, size_bytes, first_seen_at, last_seen_at "
-                "FROM permanodes WHERE id = ?",
+                "SELECT id, canonical_hash, size_bytes, first_seen_at, last_seen_at FROM permanodes WHERE id = ?",
                 (permanode_id,),
             ).fetchone()
             if head is None:
@@ -390,9 +376,7 @@ def tail_audit_log(
     ]
 
 
-def list_machines(
-    db_path: Path, *, include_imports: bool = False
-) -> list[dict[str, Any]]:
+def list_machines(db_path: Path, *, include_imports: bool = False) -> list[dict[str, Any]]:
     """List every machine_id that has touched the inventory, with
     counts + first/last seen.
 
@@ -419,9 +403,7 @@ def list_machines(
     ]
 
 
-def get_machine(
-    db_path: Path, *, machine_id: str, include_imports: bool = False
-) -> dict[str, Any]:
+def get_machine(db_path: Path, *, machine_id: str, include_imports: bool = False) -> dict[str, Any]:
     """Full details for one machine_id + recent activity.
 
     Returns ``{"found": False, "machine_id": <input>}`` when nothing
@@ -453,12 +435,10 @@ def get_machine(
             "last_seen_at": s.last_seen_at,
         },
         "recent_scan_runs": [
-            {"kind": a.kind, "timestamp": a.timestamp, "summary": a.summary}
-            for a in details.recent_scan_runs
+            {"kind": a.kind, "timestamp": a.timestamp, "summary": a.summary} for a in details.recent_scan_runs
         ],
         "recent_audit": [
-            {"kind": a.kind, "timestamp": a.timestamp, "summary": a.summary}
-            for a in details.recent_audit
+            {"kind": a.kind, "timestamp": a.timestamp, "summary": a.summary} for a in details.recent_audit
         ],
     }
 
@@ -510,20 +490,50 @@ def apply_dry_run(
     max_files: int | None = None,
     skip_verify: bool = False,
     allow_store_path_unlink: bool = False,
+    require_fp_healthy: bool = True,
+    issue_plan_token: bool = True,
 ) -> dict[str, Any]:
     """Dry-run apply a plan TSV (ADR-0002). Never mutates the filesystem.
 
     Does not run ``--execute``. Returns applied/skipped/errored counts.
+    On success with ``issue_plan_token=True``, returns a one-shot
+    ``plan_token`` required by MCP ``apply_execute`` (ADR-0016).
+    ``require_fp_healthy`` defaults True (match execute) so agents do
+    not get a token that later fails FP preflight.
     """
     from pathlib import Path as _Path
 
     from steward.infra.db.admin import resolve_machine_id
     from steward.infra.db.apply import ApplyRefused, apply_manifest
     from steward.infra.db.settings import inventory_db_path
+    from steward.infra.mcp.plan_tokens import issue_plan_token as _issue
 
     path = _Path(manifest_path)
     if not path.exists():
         return {"ok": False, "error": f"manifest not found: {manifest_path}"}
+    prefer_mount = not allow_store_path_unlink
+    if require_fp_healthy:
+        from steward.infra.fp_preflight import (
+            fp_health_problems,
+            fp_health_warnings,
+            manifest_needs_fp_health,
+        )
+
+        if manifest_needs_fp_health(path):
+            problems = fp_health_problems(prefer_mount_unlink=prefer_mount)
+            if problems:
+                return {
+                    "ok": False,
+                    "fp_unhealthy": True,
+                    "problems": list(problems),
+                    "error": "require_fp_healthy: cloud-FP pre-flight failed",
+                }
+            warnings = fp_health_warnings(prefer_mount_unlink=prefer_mount)
+        else:
+            warnings = []
+    else:
+        warnings = []
+
     target = inventory_db_path()
     machine_id = resolve_machine_id(target)
     try:
@@ -533,7 +543,7 @@ def apply_dry_run(
             dry_run=True,
             max_files=max_files,
             skip_verify=skip_verify,
-            prefer_mount_unlink=not allow_store_path_unlink,
+            prefer_mount_unlink=prefer_mount,
         )
     except ApplyRefused as exc:
         return {
@@ -542,16 +552,301 @@ def apply_dry_run(
             "rejected": list(exc.result.rejected_imported_claims),
             "error": str(exc),
         }
-    return {
+    out: dict[str, Any] = {
         "ok": True,
         "dry_run": True,
         "manifest_run_id": result.manifest_run_id,
+        "manifest_path": str(path.resolve()),
         "rows_total": result.rows_total,
         "rows_applied": result.rows_applied,
         "rows_skipped": result.rows_skipped,
         "rows_errored": result.rows_errored,
         "errors": list(result.errors)[:50],
         "nas_export_path": result.nas_export_path,
+        "fp_warnings": list(warnings),
+        "plan_token": None,
+        "plan_token_expires_at": None,
+    }
+    if issue_plan_token and result.rows_errored == 0:
+        rec = _issue(
+            manifest_path=path,
+            machine_id=machine_id,
+            rows_total=result.rows_total,
+            rows_applied=result.rows_applied,
+            max_files=max_files,
+            dry_run_errors=result.rows_errored,
+        )
+        out["plan_token"] = rec.token
+        out["plan_token_expires_at"] = rec.expires_at
+        out["note"] = (
+            "plan_token authorizes one MCP apply_execute for this manifest "
+            "digest (ADR-0016). STEWARD_MCP_MODE=write required."
+        )
+    elif issue_plan_token and result.rows_errored:
+        out["note"] = "plan_token not issued because dry-run had row errors — fix errors and re-run apply_dry_run"
+    return out
+
+
+def apply_execute(
+    *,
+    manifest_path: str,
+    plan_token: str,
+    max_files: int,
+    skip_verify: bool = False,
+    allow_store_path_unlink: bool = False,
+    require_fp_healthy: bool = True,
+) -> dict[str, Any]:
+    """Execute a plan after a successful dry-run plan_token (ADR-0016).
+
+    Requires ``STEWARD_MCP_MODE=write``. ``max_files`` is mandatory and
+    capped by ``STEWARD_MCP_MAX_FILES_CAP`` (default 50).
+    """
+    from pathlib import Path as _Path
+
+    from steward.infra.db.admin import resolve_machine_id
+    from steward.infra.db.apply import ApplyRefused, apply_manifest
+    from steward.infra.db.settings import inventory_db_path
+    from steward.infra.mcp.capability import (
+        McpCapabilityError,
+        McpMode,
+        mcp_actor,
+        mcp_max_files_cap,
+        record_mcp_write_invoked,
+        require_mode,
+    )
+    from steward.infra.mcp.plan_tokens import (
+        PlanTokenError,
+        consume_plan_token,
+        validate_plan_token,
+    )
+
+    try:
+        require_mode(McpMode.WRITE, tool="apply_execute")
+    except McpCapabilityError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    cap = mcp_max_files_cap()
+    try:
+        if max_files is None:
+            raise ValueError("missing")
+        max_files_i = int(max_files)
+    except (TypeError, ValueError):
+        return {
+            "ok": False,
+            "error": "max_files is required and must be an integer >= 1",
+        }
+    if max_files_i < 1:
+        return {
+            "ok": False,
+            "error": "max_files is required and must be >= 1 for MCP apply_execute",
+        }
+    if max_files_i > cap:
+        return {
+            "ok": False,
+            "error": (f"max_files={max_files_i} exceeds STEWARD_MCP_MAX_FILES_CAP={cap}"),
+        }
+
+    path = _Path(manifest_path)
+    if not path.exists():
+        return {"ok": False, "error": f"manifest not found: {manifest_path}"}
+
+    prefer_mount = not allow_store_path_unlink
+    if require_fp_healthy:
+        from steward.infra.fp_preflight import (
+            fp_health_problems,
+            fp_health_warnings,
+            manifest_needs_fp_health,
+        )
+
+        if manifest_needs_fp_health(path):
+            problems = fp_health_problems(prefer_mount_unlink=prefer_mount)
+            if problems:
+                return {
+                    "ok": False,
+                    "fp_unhealthy": True,
+                    "problems": list(problems),
+                    "error": "require_fp_healthy: cloud-FP pre-flight failed",
+                }
+            warnings = fp_health_warnings(prefer_mount_unlink=prefer_mount)
+        else:
+            warnings = []
+    else:
+        warnings = []
+
+    target = inventory_db_path()
+    machine_id = resolve_machine_id(target)
+    try:
+        rec = validate_plan_token(
+            token=plan_token,
+            manifest_path=path,
+            machine_id=machine_id,
+            max_files=max_files_i,
+        )
+    except PlanTokenError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    record_mcp_write_invoked(
+        db_path=target,
+        machine_id=machine_id,
+        tool="apply_execute",
+        args={
+            "manifest_path": str(path.resolve()),
+            "max_files": max_files_i,
+            "skip_verify": skip_verify,
+            "allow_store_path_unlink": allow_store_path_unlink,
+            "require_fp_healthy": require_fp_healthy,
+            "plan_token_prefix": plan_token[:8] + "…",
+            "dry_run_rows_applied": rec.rows_applied,
+        },
+    )
+
+    try:
+        result = apply_manifest(
+            manifest_path=path,
+            machine_id=machine_id,
+            dry_run=False,
+            max_files=max_files_i,
+            skip_verify=skip_verify,
+            prefer_mount_unlink=prefer_mount,
+        )
+    except ApplyRefused as exc:
+        # Token not consumed — operator can retry after fixing attach state.
+        return {
+            "ok": False,
+            "refused": True,
+            "rejected": list(exc.result.rejected_imported_claims),
+            "error": str(exc),
+            "plan_token_retained": True,
+        }
+
+    # Consume only after apply returned (mutations may have occurred).
+    try:
+        consume_plan_token(token=plan_token)
+    except PlanTokenError:
+        pass  # race: concurrent consume; apply already completed
+
+    return {
+        "ok": True,
+        "dry_run": False,
+        "executed": True,
+        "manifest_run_id": result.manifest_run_id,
+        "manifest_path": str(path.resolve()),
+        "rows_total": result.rows_total,
+        "rows_applied": result.rows_applied,
+        "rows_skipped": result.rows_skipped,
+        "rows_errored": result.rows_errored,
+        "errors": list(result.errors)[:50],
+        "nas_export_path": result.nas_export_path,
+        "fp_warnings": list(warnings),
+        "actor": mcp_actor(),
+        "max_files": max_files_i,
+    }
+
+
+def status_snapshot(
+    *,
+    quick: bool = True,
+    include_imports: bool = False,
+) -> dict[str, Any]:
+    """Operator status report as JSON (wraps ``steward status``)."""
+    from steward.infra.db.settings import inventory_db_path
+    from steward.infra.status import collect_status, status_to_dict
+
+    db = inventory_db_path()
+    if not db.exists():
+        return {"ok": False, "error": f"inventory missing: {db}"}
+    report = collect_status(
+        db_path=db,
+        quick=quick,
+        include_imports=include_imports,
+    )
+    out = status_to_dict(report)
+    out["ok"] = True
+    out["quick"] = quick
+    return out
+
+
+def scan_status(*, root: str | None = None, limit: int = 5) -> dict[str, Any]:
+    """Latest scan_runs, optionally filtered by root_path prefix/exact."""
+    from steward.infra.db.settings import inventory_db_path
+
+    db = inventory_db_path()
+    if not db.exists():
+        return {"ok": False, "error": f"inventory missing: {db}"}
+    con = _ro(db)
+    try:
+        if root:
+            rows = con.execute(
+                """
+                SELECT id, root_path, started_at, finished_at, files_walked,
+                       files_hashed, files_skipped, errors, workers
+                FROM scan_runs
+                WHERE root_path = ? OR root_path LIKE ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (root, root.rstrip("/") + "%", int(limit)),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                """
+                SELECT id, root_path, started_at, finished_at, files_walked,
+                       files_hashed, files_skipped, errors, workers
+                FROM scan_runs
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (int(limit),),
+            ).fetchall()
+    finally:
+        con.close()
+    runs = [
+        {
+            "id": int(r[0]),
+            "root_path": str(r[1]),
+            "started_at": r[2],
+            "finished_at": r[3],
+            "files_walked": r[4],
+            "files_hashed": r[5],
+            "files_skipped": r[6],
+            "errors": r[7],
+            "workers": r[8],
+            "in_progress": r[3] is None,
+        }
+        for r in rows
+    ]
+    return {
+        "ok": True,
+        "root_filter": root,
+        "runs": runs,
+        "any_in_progress": any(x["in_progress"] for x in runs),
+    }
+
+
+def inspect_target(
+    target: str,
+    *,
+    audit_limit: int = 20,
+    include_imports: bool = False,
+) -> dict[str, Any]:
+    """Inspect by path, permanode id, or hash (wraps ``steward inspect``)."""
+    from steward.infra.db.inspect import inspect as _inspect
+
+    result = _inspect(target, audit_limit=audit_limit, include_imports=include_imports)
+    if result is None:
+        return {"ok": False, "error": f"no match for {target!r}"}
+    return {
+        "ok": True,
+        "permanode_id": result.permanode_id,
+        "canonical_hash": result.canonical_hash,
+        "canonical_hash_algo": result.canonical_hash_algo,
+        "size_bytes": result.size_bytes,
+        "first_seen_at": result.first_seen_at,
+        "last_seen_at": result.last_seen_at,
+        "claims": list(result.claims),
+        "audit_rows": list(result.audit_rows),
+        "source": result.source,
+        "resolution_schema": result.resolution_schema,
     }
 
 
@@ -562,18 +857,49 @@ def fp_status() -> dict[str, Any]:
     return fp_status_to_dict(collect_fp_status())
 
 
+def mcp_capability() -> dict[str, Any]:
+    """Report current MCP mode, actor, and max_files cap (ADR-0016)."""
+    from steward.infra.mcp.capability import (
+        McpCapabilityError,
+        mcp_actor,
+        mcp_max_files_cap,
+        mcp_mode_name,
+    )
+
+    try:
+        mode = mcp_mode_name()
+    except McpCapabilityError as exc:
+        return {"ok": False, "error": str(exc)}
+    return {
+        "ok": True,
+        "mode": mode,
+        "actor": mcp_actor(),
+        "max_files_cap": mcp_max_files_cap(),
+        "env": {
+            "STEWARD_MCP_MODE": "read|plan|write (default plan)",
+            "STEWARD_MCP_ACTOR": "audit actor override",
+            "STEWARD_MCP_MAX_FILES_CAP": "hard cap for apply_execute (default 50)",
+        },
+    }
+
+
 __all__ = [
     "apply_dry_run",
+    "apply_execute",
     "find_permanode_by_hash",
     "find_permanode_by_path",
     "fp_status",
     "get_machine",
     "get_permanode",
+    "inspect_target",
     "inventory_stats",
     "list_machines",
     "list_policies",
+    "mcp_capability",
     "policy_plan",
     "recent_scan_runs",
+    "scan_status",
     "show_policy",
+    "status_snapshot",
     "tail_audit_log",
 ]

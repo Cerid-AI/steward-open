@@ -17,6 +17,7 @@ off the operator's machine without explicit opt-in. Operators who
 want LAN exposure can pass ``--host 0.0.0.0`` and live with the
 consequences (read-only, but still).
 """
+
 from __future__ import annotations
 
 import json
@@ -65,11 +66,15 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         quick = self.server._quick and not full
         if self._query_flag(query, "quick"):
             quick = True
-        return collect_status(
-            db_path=self.server._db_path,
-            include_imports=include_imports,
-            quick=quick,
-        ), include_imports, quick
+        return (
+            collect_status(
+                db_path=self.server._db_path,
+                include_imports=include_imports,
+                quick=quick,
+            ),
+            include_imports,
+            quick,
+        )
 
     def _respond_html(self, query: str) -> None:
         try:
@@ -80,9 +85,7 @@ class _DashboardHandler(BaseHTTPRequestHandler):
                 include_imports=include_imports,
             ).encode("utf-8")
         except Exception as exc:  # pragma: no cover - defensive  # noqa: BLE001
-            self._respond_text(
-                f"500 error collecting status: {exc}\n", status=500
-            )
+            self._respond_text(f"500 error collecting status: {exc}\n", status=500)
             return
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -98,9 +101,7 @@ class _DashboardHandler(BaseHTTPRequestHandler):
             payload["include_imports"] = include_imports
             payload["quick"] = quick
         except Exception as exc:  # pragma: no cover  # noqa: BLE001
-            self._respond_text(
-                f"500 error collecting status: {exc}\n", status=500
-            )
+            self._respond_text(f"500 error collecting status: {exc}\n", status=500)
             return
         body = json.dumps(payload, indent=2).encode("utf-8")
         self.send_response(200)

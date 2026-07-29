@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Unit tests for :mod:`steward.core.fp_paths` (ADR-0015)."""
+
 from __future__ import annotations
 
 import os

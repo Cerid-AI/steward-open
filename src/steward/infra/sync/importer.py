@@ -31,6 +31,7 @@ Refusal conditions (raise :class:`ImportError`):
    cannot import their own machine's snapshot.
 7. The payload's audit chain doesn't verify.
 """
+
 from __future__ import annotations
 
 import logging
@@ -127,10 +128,7 @@ def _local_machine_id(db_path: Path) -> str:
     finally:
         con.close()
     if not value:
-        raise ImportError_(
-            f"local inventory.db has no machine_id in meta: {db_path}. "
-            f"Run `steward db migrate` first."
-        )
+        raise ImportError_(f"local inventory.db has no machine_id in meta: {db_path}. Run `steward db migrate` first.")
     return value
 
 
@@ -145,9 +143,7 @@ def _verify_payload_chain(payload_path: Path) -> int:
     finally:
         con.close()
     if not ok:
-        raise ImportError_(
-            f"imported audit chain failed verification: {err} (rows checked: {rows})"
-        )
+        raise ImportError_(f"imported audit chain failed verification: {err} (rows checked: {rows})")
     return rows
 
 
@@ -257,10 +253,7 @@ def import_inventory(
     if not envelope_path.exists():
         raise ImportError_(f"envelope not found: {envelope_path}")
     if not db_path.exists():
-        raise ImportError_(
-            f"local inventory.db not found: {db_path}. "
-            f"Run `steward db migrate` first."
-        )
+        raise ImportError_(f"local inventory.db not found: {db_path}. Run `steward db migrate` first.")
 
     started = time.monotonic()
     local_id = _local_machine_id(db_path)
@@ -331,11 +324,7 @@ def import_inventory(
         # Manifest hash too — over the bytes we just parsed.
         manifest_actual_blake3 = _bytes_blake3(manifest_bytes)
         # checksums.txt has them in payload-then-manifest order.
-        checksum_lines = [
-            ln.strip()
-            for ln in _checksums_bytes.decode("utf-8").splitlines()
-            if ln.strip()
-        ]
+        checksum_lines = [ln.strip() for ln in _checksums_bytes.decode("utf-8").splitlines() if ln.strip()]
         manifest_line = next(
             (ln for ln in checksum_lines if ln.endswith("manifest.json")),
             None,
@@ -354,9 +343,7 @@ def import_inventory(
         audit_rows = _verify_payload_chain(staged)
         if audit_rows != manifest.payload.audit_rows:
             raise ImportError_(
-                f"audit row count mismatch: manifest says "
-                f"{manifest.payload.audit_rows} but payload has "
-                f"{audit_rows}"
+                f"audit row count mismatch: manifest says {manifest.payload.audit_rows} but payload has {audit_rows}"
             )
 
         # ── 7. Atomic move into final location.

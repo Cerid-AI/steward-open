@@ -16,6 +16,7 @@ a configurable interval (default 30 s). Operators who want the page
 to stop refreshing can hit a browser's stop button or pass
 ``refresh_seconds=0``.
 """
+
 from __future__ import annotations
 
 import html
@@ -37,7 +38,7 @@ def _esc(value: Any) -> str:
 def _row(label: str, value: str, *, css_class: str = "") -> str:
     """Render one labelled cell pair as a ``<tr>``."""
     cls = f' class="{css_class}"' if css_class else ""
-    return f'<tr{cls}><th>{html.escape(label)}</th><td>{value}</td></tr>'
+    return f"<tr{cls}><th>{html.escape(label)}</th><td>{value}</td></tr>"
 
 
 # ─────────────────────── per-section renderers ──────────────────────────
@@ -52,8 +53,7 @@ def _render_inventory(report: StatusReport) -> str:
         _row("machines", f"{report.inventory.machines:,}"),
         _row(
             "db file",
-            f"{_esc(report.db.path)} "
-            f"<span class='dim'>({_esc(_format_bytes(report.db.size_bytes))})</span>",
+            f"{_esc(report.db.path)} <span class='dim'>({_esc(_format_bytes(report.db.size_bytes))})</span>",
         ),
         _row("db modified", _esc(report.db.modified_iso)),
     ]
@@ -96,9 +96,7 @@ def _render_stash(report: StatusReport) -> str:
     return _section("stash", rows)
 
 
-def _render_adapter(
-    report: StatusReport, *, attr: str, title: str
-) -> str:
+def _render_adapter(report: StatusReport, *, attr: str, title: str) -> str:
     run = getattr(report, attr)
     if run is None:
         return _section(
@@ -158,12 +156,7 @@ def _render_audit(report: StatusReport) -> str:
 
 def _section(title: str, rows: list[str]) -> str:
     """Render one card-style section: header + rows table."""
-    return (
-        f'<section class="card">'
-        f"<h2>{html.escape(title)}</h2>"
-        f'<table><tbody>{"".join(rows)}</tbody></table>'
-        f"</section>"
-    )
+    return f'<section class="card"><h2>{html.escape(title)}</h2><table><tbody>{"".join(rows)}</tbody></table></section>'
 
 
 _CSS = """\
@@ -274,11 +267,7 @@ def render_status_html(
         between "local only" and "all machines".
     """
     ts = rendered_at or datetime.now()
-    refresh_tag = (
-        f'<meta http-equiv="refresh" content="{int(refresh_seconds)}">'
-        if refresh_seconds > 0
-        else ""
-    )
+    refresh_tag = f'<meta http-equiv="refresh" content="{int(refresh_seconds)}">' if refresh_seconds > 0 else ""
 
     sections = [
         _render_inventory(report),
@@ -299,7 +288,9 @@ def render_status_html(
         )
 
     if include_imports:
-        scope_marker = '<span class="meta"> · scope: <strong>all machines</strong> · <a href="/">switch to local only</a></span>'
+        scope_marker = (
+            '<span class="meta"> · scope: <strong>all machines</strong> · <a href="/">switch to local only</a></span>'
+        )
     else:
         scope_marker = '<span class="meta"> · scope: <strong>local only</strong> · <a href="/?include_imports=1">include attached</a></span>'
 
@@ -314,13 +305,13 @@ def render_status_html(
 <body>
 <header>
   <h1>Steward — status</h1>
-  <span class="meta">rendered {html.escape(ts.isoformat(timespec='seconds'))}
+  <span class="meta">rendered {html.escape(ts.isoformat(timespec="seconds"))}
   · refresh {int(refresh_seconds)}s</span>
   {scope_marker}
 </header>
 {audit_banner}
 <main class="grid">
-{''.join(sections)}
+{"".join(sections)}
 </main>
 <footer>
   read-only — every mutation still requires <code>steward apply --execute</code>

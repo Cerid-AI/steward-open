@@ -37,6 +37,7 @@ The caller (``apply_manifest``) refuses the apply if rejections
 are non-empty AND writes one ``apply_rejected_imported_claim``
 audit row per refusal so the operator's chain captures the event.
 """
+
 from __future__ import annotations
 
 import logging
@@ -128,9 +129,7 @@ def preflight_apply(
     # ── Fast path: no attached inventories means no cross-machine risk. ──
     con_probe = connect(target_path, read_only=True, load_vec=False)
     try:
-        rows = con_probe.execute(
-            "SELECT machine_id, file_path FROM attached_inventories"
-        ).fetchall()
+        rows = con_probe.execute("SELECT machine_id, file_path FROM attached_inventories").fetchall()
     finally:
         con_probe.close()
 
@@ -152,9 +151,7 @@ def preflight_apply(
             payload_path = str(row[1])
             alias = _attach_alias(ext_machine_id)
             try:
-                con.execute(
-                    f"ATTACH DATABASE 'file:{payload_path}?mode=ro' AS {alias}"
-                )
+                con.execute(f"ATTACH DATABASE 'file:{payload_path}?mode=ro' AS {alias}")
             except sqlite3.OperationalError as exc:  # noqa: BLE001 — missing file isn't fatal
                 log_swallowed_error(
                     "infra.sync.apply_preflight.attach",
@@ -208,9 +205,7 @@ def _classify_row(
     # Local hit? Look for any current claim for this permanode on the
     # local machine. Any hit clears the row.
     local_hit = con.execute(
-        "SELECT 1 FROM claims "
-        "WHERE permanode_id = ? AND machine_id = ? AND is_current = 1 "
-        "LIMIT 1",
+        "SELECT 1 FROM claims WHERE permanode_id = ? AND machine_id = ? AND is_current = 1 LIMIT 1",
         (row.permanode_id, machine_id),
     ).fetchone()
     if local_hit is not None:

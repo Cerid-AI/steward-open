@@ -8,6 +8,7 @@ header carries (a) the Steward version that produced it (so a stale
 manifest from an older version can be refused) and (b) the policy name
 and phase that generated it. The rows are typed via :class:`ManifestRow`.
 """
+
 from __future__ import annotations
 
 from datetime import datetime

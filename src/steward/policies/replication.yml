@@ -25,7 +25,7 @@ defaults:
 sources:
   # Inventory DB — the single most-important artefact to off-machine.
   - name: inventory-db
-    source: "/home/operator/.local/share/steward/inventory.db"
+    source: "/Users/sunrunner/.local/share/steward/inventory.db"
     destination: "/Volumes/Backup/_steward-mirror/inventory.db"
     mode: copy
     excludes: []
@@ -35,7 +35,7 @@ sources:
   # User-data dir (runs/, snapshots/, workspace/, execution-log/).
   # Excludes ephemeral caches that don't need replication.
   - name: user-data
-    source: "/home/operator/.local/share/steward/"
+    source: "/Users/sunrunner/.local/share/steward/"
     destination: "/Volumes/Backup/_steward-mirror/user-data/"
     mode: copy
     excludes:

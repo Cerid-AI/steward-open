@@ -6,6 +6,7 @@ Steward stores the entire inventory + audit + embeddings in a single
 SQLite file (ADR-0006). Every connection that opens it goes through
 :func:`connect` so the pragmas + extension load are consistent.
 """
+
 from __future__ import annotations
 
 import logging
@@ -46,7 +47,9 @@ def connect(
     if not read_only:
         target.parent.mkdir(parents=True, exist_ok=True)
     uri = f"file:{target}{'?mode=ro' if read_only else ''}"
-    con = sqlite3.connect(uri, uri=True, detect_types=detect_types)
+    # timeout: wait for locks (parallel scan workers + apply). Default
+    # sqlite3 timeout is 5s — too short for multi-GB inventory writers.
+    con = sqlite3.connect(uri, uri=True, detect_types=detect_types, timeout=60.0)
 
     # Pragmas — order matters: WAL must be set before any writes for the
     # file's journal-mode header to be persisted.
@@ -54,6 +57,7 @@ def connect(
     con.execute("PRAGMA synchronous=NORMAL")
     con.execute("PRAGMA foreign_keys=ON")
     con.execute(f"PRAGMA cache_size=-{DEFAULT_PAGE_CACHE_KIB}")
+    con.execute("PRAGMA busy_timeout=60000")
 
     if load_vec:
         try:

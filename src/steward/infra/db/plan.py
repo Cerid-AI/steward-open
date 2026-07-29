@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Plan-generation facade — opens DB, loads policy, runs reconciler, writes manifest."""
+
 from __future__ import annotations
 
 import logging
@@ -48,9 +49,7 @@ def plan_dedup_retire(
     """
     policy = load_policy(policy_path)
     if not isinstance(policy, RetentionPolicy):
-        raise TypeError(
-            f"plan_dedup_retire requires a RetentionPolicy YAML; got {type(policy).__name__}"
-        )
+        raise TypeError(f"plan_dedup_retire requires a RetentionPolicy YAML; got {type(policy).__name__}")
 
     target = inventory_db_path()
     con = connect(target, read_only=True, load_vec=False)
@@ -94,9 +93,7 @@ def plan_promote(
     """
     policy = load_policy(policy_path)
     if not isinstance(policy, PromotionPolicy):
-        raise TypeError(
-            f"plan_promote requires a PromotionPolicy YAML; got {type(policy).__name__}"
-        )
+        raise TypeError(f"plan_promote requires a PromotionPolicy YAML; got {type(policy).__name__}")
 
     target = inventory_db_path()
     con = connect(target, read_only=True, load_vec=False)

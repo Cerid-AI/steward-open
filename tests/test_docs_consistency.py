@@ -7,6 +7,7 @@ test forces you to document it in README.md and QUICKSTART.md. Cheap
 insurance against the v0.1.0 → v0.2.6 drift that left the README
 claiming "v0.1 in flight" for seven patch releases.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -43,26 +44,18 @@ def test_every_subcommand_appears_in_readme() -> None:
     in a code block).
     """
     text = README.read_text(encoding="utf-8")
-    missing = [
-        name for name in sorted(_registered_subcommands())
-        if f"steward {name}" not in text
-    ]
+    missing = [name for name in sorted(_registered_subcommands()) if f"steward {name}" not in text]
     assert not missing, (
-        f"README.md is missing references to: {missing}. "
-        f"Add each as `steward <name>` somewhere in the doc."
+        f"README.md is missing references to: {missing}. Add each as `steward <name>` somewhere in the doc."
     )
 
 
 def test_every_subcommand_appears_in_quickstart() -> None:
     """Every typer subcommand must be exercised in docs/QUICKSTART.md."""
     text = QUICKSTART.read_text(encoding="utf-8")
-    missing = [
-        name for name in sorted(_registered_subcommands())
-        if f"steward {name}" not in text
-    ]
+    missing = [name for name in sorted(_registered_subcommands()) if f"steward {name}" not in text]
     assert not missing, (
-        f"docs/QUICKSTART.md is missing walkthroughs for: {missing}. "
-        f"Add each as `steward <name>` somewhere in the doc."
+        f"docs/QUICKSTART.md is missing walkthroughs for: {missing}. Add each as `steward <name>` somewhere in the doc."
     )
 
 
@@ -91,9 +84,7 @@ def test_changelog_head_matches_pkg_version() -> None:
 
     text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     # The latest ## header should be the current __version__.
-    headers = [
-        line for line in text.splitlines() if line.startswith("## [")
-    ]
+    headers = [line for line in text.splitlines() if line.startswith("## [")]
     assert headers, "CHANGELOG.md has no ## [version] headers"
     first = headers[0]
     assert __version__ in first, (
@@ -122,6 +113,4 @@ def test_roadmap_exists_and_is_non_empty() -> None:
 def test_roadmap_acknowledges_shipped_releases(version_tag: str) -> None:
     """The ROADMAP should mention every milestone-level shipped release."""
     p = REPO_ROOT / "docs" / "ROADMAP.md"
-    assert version_tag in p.read_text(encoding="utf-8"), (
-        f"docs/ROADMAP.md should mention {version_tag}"
-    )
+    assert version_tag in p.read_text(encoding="utf-8"), f"docs/ROADMAP.md should mention {version_tag}"

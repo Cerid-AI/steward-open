@@ -6,6 +6,7 @@ The CLI calls these helpers rather than importing :mod:`steward.infra.db.connect
 directly (import-linter contract). They orchestrate alembic + audit-chain
 verification + sqlite integrity checks behind one stable surface.
 """
+
 from __future__ import annotations
 
 import logging
@@ -107,8 +108,7 @@ def verify_chain(db_path: Path | None = None) -> VerifyResult:
     """
     target = (db_path or inventory_db_path()).expanduser()
     if not target.exists():
-        return VerifyResult(rows_checked=0, ok=False,
-                            error=f"inventory.db not found at {target}")
+        return VerifyResult(rows_checked=0, ok=False, error=f"inventory.db not found at {target}")
     con = connect(target, read_only=True, load_vec=False)
     try:
         ok, n, err = repo_audit.verify_chain(con)

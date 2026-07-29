@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Unit tests for the path classifier."""
+
 from __future__ import annotations
 
 import pytest
@@ -37,10 +38,10 @@ def policy() -> ClassificationPolicy:
 
 def test_domain_match(policy: ClassificationPolicy) -> None:
     c = Classifier(policy)
-    assert c.classify("/home/operator/Photos/Photos.photoslibrary/foo").domain == "photos"
+    assert c.classify("/Users/x/Photos/Photos.photoslibrary/foo").domain == "photos"
     assert c.classify("/Volumes/Backup/DCIM/100MEDIA").domain == "photos"
-    assert c.classify("/home/operator/Music/Album/track.mp3").domain == "music"
-    assert c.classify("/home/operator/Documents/x.pdf").domain is None
+    assert c.classify("/Users/x/Music/Album/track.mp3").domain == "music"
+    assert c.classify("/Users/x/Documents/x.pdf").domain is None
 
 
 def test_cluster_match(policy: ClassificationPolicy) -> None:
@@ -54,10 +55,10 @@ def test_first_match_wins(policy: ClassificationPolicy) -> None:
     """When multiple domain rules could match, the FIRST domain in YAML order wins."""
     c = Classifier(policy)
     # Path contains both photoslibrary AND music — photos comes first → photos.
-    assert c.classify("/home/operator/.photoslibrary/Music").domain == "photos"
+    assert c.classify("/Users/x/.photoslibrary/Music").domain == "photos"
 
 
 def test_case_insensitive(policy: ClassificationPolicy) -> None:
     c = Classifier(policy)
     # The classifier lowercases the haystack so "/MUSIC/" matches "/music/".
-    assert c.classify("/home/operator/MUSIC/album.mp3").domain == "music"
+    assert c.classify("/Users/X/MUSIC/album.mp3").domain == "music"

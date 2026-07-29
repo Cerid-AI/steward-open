@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Tests for :func:`steward.core.ids.permanode_id`."""
+
 from __future__ import annotations
 
 import pytest

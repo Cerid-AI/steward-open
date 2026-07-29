@@ -6,6 +6,7 @@ Restic isn't required by tests — we exercise the argv builders, env
 setup, and JSON-output parsers directly. The runner-level tests in
 ``tests/integration/test_archive_runner.py`` cover the audit chain.
 """
+
 from __future__ import annotations
 
 from steward.core.policy.schema import ArchiveDefaults, ArchiveSource
@@ -52,9 +53,7 @@ def test_archive_source_can_be_used_with_defaults() -> None:
     inside ``run_restic_*`` which require restic on PATH; the runner
     tests cover them via fakes.)
     """
-    src = ArchiveSource(
-        name="x", source="/a", repository="/b", tags=["t"]
-    )
+    src = ArchiveSource(name="x", source="/a", repository="/b", tags=["t"])
     assert src.exclude_caches is True
     assert src.tags == ["t"]
 
@@ -77,19 +76,12 @@ def test_backup_summary_extracts_last_summary_message() -> None:
 
 
 def test_backup_summary_returns_empty_when_no_summary_line() -> None:
-    stdout = (
-        '{"message_type":"status","percent_done":0.5}\n'
-        '{"message_type":"error","error":"boom"}\n'
-    )
+    stdout = '{"message_type":"status","percent_done":0.5}\n{"message_type":"error","error":"boom"}\n'
     assert _parse_backup_summary(stdout) == {}
 
 
 def test_backup_summary_skips_non_json_lines() -> None:
-    stdout = (
-        "loading config\n"
-        '{"message_type":"summary","snapshot_id":"x"}\n'
-        "done\n"
-    )
+    stdout = 'loading config\n{"message_type":"summary","snapshot_id":"x"}\ndone\n'
     assert _parse_backup_summary(stdout) == {
         "message_type": "summary",
         "snapshot_id": "x",
@@ -125,9 +117,7 @@ def test_snapshots_list_returns_empty_on_non_array_output() -> None:
 def test_snapshots_list_drops_non_dict_entries() -> None:
     """A pathological array containing non-object entries shouldn't
     propagate them into the parsed result."""
-    assert _parse_snapshots_list('[{"ok":true}, "string", 42]') == [
-        {"ok": True}
-    ]
+    assert _parse_snapshots_list('[{"ok":true}, "string", 42]') == [{"ok": True}]
 
 
 # ─────────────────────── init summary parser ──────────────────────────

@@ -7,6 +7,7 @@ command-builder + the JSON-log stats parser. The runner-level tests
 in ``tests/integration/test_replicate_runner.py`` cover the audit
 chain + skip-on-missing-tool behaviour.
 """
+
 from __future__ import annotations
 
 from steward.core.policy.schema import ReplicationDefaults, ReplicationSource
@@ -30,18 +31,14 @@ def test_argv_uses_copy_by_default() -> None:
 
 def test_argv_dry_run_flag_passed_through() -> None:
     defaults = ReplicationDefaults()
-    src = ReplicationSource(
-        name="x", source="/a", destination="/b"
-    )
+    src = ReplicationSource(name="x", source="/a", destination="/b")
     argv = _build_argv(defaults=defaults, source=src, dry_run=True)
     assert "--dry-run" in argv
 
 
 def test_argv_sync_mode_replaces_copy() -> None:
     defaults = ReplicationDefaults()
-    src = ReplicationSource(
-        name="x", source="/a", destination="/b", mode="sync"
-    )
+    src = ReplicationSource(name="x", source="/a", destination="/b", mode="sync")
     argv = _build_argv(defaults=defaults, source=src, dry_run=False)
     assert argv[1] == "sync"
 
@@ -93,8 +90,6 @@ def test_parse_stats_returns_empty_on_no_json() -> None:
 def test_parse_stats_ignores_non_numeric_fields() -> None:
     """rclone occasionally embeds arrays (errors_list); the parser drops
     non-numeric fields so the stats dict is JSON-payload-safe."""
-    stderr = (
-        '{"stats":{"bytes":100,"errors_list":["a","b"],"transfers":1}}\n'
-    )
+    stderr = '{"stats":{"bytes":100,"errors_list":["a","b"],"transfers":1}}\n'
     stats = _parse_stats(stderr)
     assert stats == {"bytes": 100, "transfers": 1}

@@ -10,6 +10,7 @@ the operator review + reverse before the final ``rm`` runs via
 This module is the *executor* of the ``stash`` manifest action; the
 plan generator that picks paths to stash is the M5 reconciler.
 """
+
 from __future__ import annotations
 
 import logging
@@ -67,9 +68,7 @@ def same_fs_rename_to_stash(
             anc = anc.parent
         dst_dev = anc.stat().st_dev
     if src_dev != dst_dev:
-        raise ManifestError(
-            f"stash: cross-FS rename refused ({src} ↦ {dst}); same-FS only."
-        )
+        raise ManifestError(f"stash: cross-FS rename refused ({src} ↦ {dst}); same-FS only.")
 
     action = "stash_planned" if dry_run else "stash_committed"
     payload = {

@@ -15,6 +15,7 @@ The command-builder explicitly sets ``--use-json-log`` whenever rclone
 is invoked so the runner can parse structured stats from stderr (rclone
 writes its JSON log lines to stderr by default).
 """
+
 from __future__ import annotations
 
 import json
@@ -170,9 +171,7 @@ def run_rclone(
     return _execute(argv, timeout=defaults.timeout_seconds)
 
 
-def _execute(
-    argv: Sequence[str], *, timeout: int
-) -> RcloneRunResult:
+def _execute(argv: Sequence[str], *, timeout: int) -> RcloneRunResult:
     """Run an rclone argv with a hard timeout. Catches the timeout and
     returns a structured result rather than propagating the exception."""
     import time
@@ -193,8 +192,16 @@ def _execute(
     except subprocess.TimeoutExpired as exc:
         timed_out = True
         rc = -1
-        stdout = (exc.stdout or b"").decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-        stderr = (exc.stderr or b"").decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        stdout = (
+            (exc.stdout or b"").decode("utf-8", errors="replace")
+            if isinstance(exc.stdout, bytes)
+            else (exc.stdout or "")
+        )
+        stderr = (
+            (exc.stderr or b"").decode("utf-8", errors="replace")
+            if isinstance(exc.stderr, bytes)
+            else (exc.stderr or "")
+        )
     duration = time.monotonic() - started
 
     # Keep stderr tail short for audit-log payload friendliness.

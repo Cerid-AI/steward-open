@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Preservation gate fixtures: a tmp inventory + a tmp tier root + a hand-built manifest."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator

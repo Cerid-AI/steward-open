@@ -1,18 +1,24 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""``steward mcp`` — run the read-only MCP server.
+"""``steward mcp`` — run the Steward MCP server.
 
 Two transports:
 
 * ``--transport stdio`` (default) — speaks MCP over stdin/stdout. The
   shape every desktop LLM client expects.
 * ``--transport http`` — serves the MCP streamable-HTTP transport on
-  ``--host`` / ``--port``. Useful for non-stdio clients.
+  ``--host`` / ``--port``. Loopback-oriented (no auth).
 
-The server exposes only read-only tools — see
-:mod:`steward.infra.mcp.handlers`. There is no write surface at all
-(per ADR-0002).
+Tool surface (ADR-0011 + ADR-0016):
+
+* **read** — inventory query, status, fp_status, inspect
+* **plan** (default ``STEWARD_MCP_MODE``) — policy_plan, apply_dry_run,
+  transport dry-runs; issues plan_token for gated execute
+* **write** — destructive execute tools including apply_execute
+
+See ``docs/CERID_AGENT_INTEGRATION.md`` and ``docs/adr/0016-mcp-agent-apply-execute.md``.
 """
+
 from __future__ import annotations
 
 import typer
@@ -51,9 +57,7 @@ def mcp_cmd(
     """Run the MCP server until interrupted."""
     target = inventory_db_path()
     if not target.exists():
-        console.print(
-            f"[yellow]inventory.db missing at {target} — running migrate first[/yellow]"
-        )
+        console.print(f"[yellow]inventory.db missing at {target} — running migrate first[/yellow]")
         migrate(target)
 
     server = build_server()
@@ -67,9 +71,7 @@ def mcp_cmd(
         console.print("[green]steward MCP[/green] listening on stdio")
         server.run(transport="stdio")
     elif transport == "http":
-        console.print(
-            f"[green]steward MCP[/green] listening on http://{host}:{port}/mcp"
-        )
+        console.print(f"[green]steward MCP[/green] listening on http://{host}:{port}/mcp")
         server.run(transport="streamable-http")
     else:
         console.print(f"[red]unknown transport: {transport}[/red]")

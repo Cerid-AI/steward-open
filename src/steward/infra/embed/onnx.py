@@ -32,6 +32,7 @@ The default model name is ``multilingual-e5-small`` (384-dim, matches
 the schema). Switching to a different 384-dim model only requires
 pointing ``--model-dir`` somewhere else.
 """
+
 from __future__ import annotations
 
 import os
@@ -131,9 +132,7 @@ class OnnxE5Embedder:
         import onnxruntime  # type: ignore[import-not-found]
         from tokenizers import Tokenizer  # type: ignore[import-not-found]
 
-        session = onnxruntime.InferenceSession(
-            str(model_path), providers=["CPUExecutionProvider"]
-        )
+        session = onnxruntime.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
         tokenizer = Tokenizer.from_file(str(tok_path))
         # Best-effort version: the size of the model file is a stable
         # proxy. Real production would read a config.json.
@@ -143,9 +142,7 @@ class OnnxE5Embedder:
             model_version=version,
             dimension=EMBEDDING_DIMENSION,
         )
-        self._loaded = _LoadedSession(
-            session=session, tokenizer=tokenizer, model_version=version
-        )
+        self._loaded = _LoadedSession(session=session, tokenizer=tokenizer, model_version=version)
         return self._loaded
 
     @staticmethod
@@ -185,11 +182,7 @@ class OnnxE5Embedder:
         # Many e5 ONNX exports expect input_ids + attention_mask + token_type_ids;
         # introspect the session's inputs to be flexible.
         inputs = {
-            i.name: (
-                [ids] if i.name == "input_ids" else
-                [mask] if i.name == "attention_mask" else
-                [[0] * len(ids[0])]
-            )
+            i.name: ([ids] if i.name == "input_ids" else [mask] if i.name == "attention_mask" else [[0] * len(ids[0])])
             for i in loaded.session.get_inputs()  # type: ignore[attr-defined]
         }
         outputs = loaded.session.run(None, inputs)  # type: ignore[attr-defined]
@@ -200,9 +193,7 @@ class OnnxE5Embedder:
             vector=vec,
         )
 
-    def embed_batch(
-        self, requests: list[EmbedRequest]
-    ) -> list[Embedding]:
+    def embed_batch(self, requests: list[EmbedRequest]) -> list[Embedding]:
         # Simple loop — v0.2 baseline. A future change could batch
         # token sequences with padding for real throughput.
         return [self.embed(r) for r in requests]

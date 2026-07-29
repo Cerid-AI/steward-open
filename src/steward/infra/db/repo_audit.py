@@ -11,6 +11,7 @@ silently — and any successful tamper still breaks the chain.
 Use :func:`append` to write rows; use :func:`verify_chain` from
 ``steward db verify`` to walk the table and confirm integrity.
 """
+
 from __future__ import annotations
 
 import json
@@ -73,8 +74,7 @@ def append(
                                claim_id, manifest_run_id, payload_json, prev_hash, row_hash)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (ts, machine_id, actor, action, permanode_id, claim_id, manifest_run_id,
-         payload_json, prev, row_hash),
+        (ts, machine_id, actor, action, permanode_id, claim_id, manifest_run_id, payload_json, prev, row_hash),
     )
     return int(cur.lastrowid or 0)
 
@@ -106,11 +106,21 @@ def verify_chain(con: sqlite3.Connection) -> tuple[bool, int, str | None]:
     rows_checked = 0
     for row in cur:
         rows_checked += 1
-        (rid, ts, machine_id, actor, action, permanode_id, claim_id,
-         manifest_run_id, payload_json, prev_hash, row_hash) = row
+        (
+            rid,
+            ts,
+            machine_id,
+            actor,
+            action,
+            permanode_id,
+            claim_id,
+            manifest_run_id,
+            payload_json,
+            prev_hash,
+            row_hash,
+        ) = row
         if prev_hash != prev_expected:
-            return (False, rows_checked,
-                    f"row {rid}: prev_hash mismatch (expected {prev_expected}, got {prev_hash})")
+            return (False, rows_checked, f"row {rid}: prev_hash mismatch (expected {prev_expected}, got {prev_hash})")
         canonical = {
             "timestamp": ts,
             "machine_id": machine_id,
@@ -123,8 +133,7 @@ def verify_chain(con: sqlite3.Connection) -> tuple[bool, int, str | None]:
         }
         recomputed = compute_row_hash(prev_hash, canonical)
         if recomputed != row_hash:
-            return (False, rows_checked,
-                    f"row {rid}: row_hash mismatch (recomputed {recomputed}, stored {row_hash})")
+            return (False, rows_checked, f"row {rid}: row_hash mismatch (recomputed {recomputed}, stored {row_hash})")
         prev_expected = row_hash
     return (True, rows_checked, None)
 

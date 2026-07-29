@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """``steward db`` subcommand group — migrate / verify / integrity / backup."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -125,9 +126,7 @@ def verify_cmd(
     console.print(table)
 
     if report.all_ok:
-        console.print(
-            f"[green]✓[/green] all {report.total} attached inventories verified ok"
-        )
+        console.print(f"[green]✓[/green] all {report.total} attached inventories verified ok")
         raise typer.Exit(0)
     console.print(
         f"[red]✗[/red] {report.broken_count} of {report.total} attached "
@@ -154,8 +153,7 @@ def backup_cmd(
     out: Path | None = typer.Option(
         None,
         "--out",
-        help="Destination snapshot file. Default: "
-        "<inventory_dir>/snapshots/inventory-<iso8601>.db.",
+        help="Destination snapshot file. Default: <inventory_dir>/snapshots/inventory-<iso8601>.db.",
     ),
     overwrite: bool = typer.Option(
         False,
@@ -175,9 +173,7 @@ def backup_cmd(
     """
     source = inventory_db_path()
     if not source.exists():
-        console.print(
-            f"[red]inventory.db missing at {source} — nothing to back up.[/red]"
-        )
+        console.print(f"[red]inventory.db missing at {source} — nothing to back up.[/red]")
         raise typer.Exit(2)
 
     if out is None:
@@ -265,8 +261,7 @@ def export_cmd(
     out: Path | None = typer.Option(
         None,
         "--out",
-        help="Destination envelope. Default: "
-        "<inventory_dir>/exports/inventory-<short_id>-<iso8601>.tar.xz.",
+        help="Destination envelope. Default: <inventory_dir>/exports/inventory-<short_id>-<iso8601>.tar.xz.",
     ),
     with_embeddings: bool = typer.Option(
         False,
@@ -292,9 +287,7 @@ def export_cmd(
     """
     source = inventory_db_path()
     if not source.exists():
-        console.print(
-            f"[red]inventory.db missing at {source} — nothing to export.[/red]"
-        )
+        console.print(f"[red]inventory.db missing at {source} — nothing to export.[/red]")
         raise typer.Exit(2)
 
     machine_id = resolve_machine_id(source)
@@ -357,10 +350,7 @@ def import_cmd(
     """
     local_db = inventory_db_path()
     if not local_db.exists():
-        console.print(
-            f"[red]local inventory.db missing at {local_db}. "
-            f"Run `steward db migrate` first.[/red]"
-        )
+        console.print(f"[red]local inventory.db missing at {local_db}. Run `steward db migrate` first.[/red]")
         raise typer.Exit(2)
 
     try:
@@ -400,18 +390,12 @@ def imports_list_cmd() -> None:
 
     local_db = inventory_db_path()
     if not local_db.exists():
-        console.print(
-            f"[red]local inventory.db missing at {local_db}. "
-            f"Run `steward db migrate` first.[/red]"
-        )
+        console.print(f"[red]local inventory.db missing at {local_db}. Run `steward db migrate` first.[/red]")
         raise typer.Exit(2)
 
     rows = list_imports(db_path=local_db)
     if not rows:
-        console.print(
-            "[dim]No attached inventories. "
-            "Use `steward db import <envelope>` to attach one.[/dim]"
-        )
+        console.print("[dim]No attached inventories. Use `steward db import <envelope>` to attach one.[/dim]")
         return
 
     table = Table(title="Attached inventories", show_lines=False)
@@ -423,11 +407,7 @@ def imports_list_cmd() -> None:
     table.add_column("payload")
 
     for row in rows:
-        payload_marker = (
-            "[green]ok[/green]"
-            if row.payload_exists
-            else "[red]MISSING[/red]"
-        )
+        payload_marker = "[green]ok[/green]" if row.payload_exists else "[red]MISSING[/red]"
         table.add_row(
             row.machine_id[:18] + "…",
             row.exporter_hostname or "[dim](unknown)[/dim]",
@@ -469,21 +449,15 @@ def imports_detach_cmd(
     from steward.infra.sync import get_import
 
     if not dry_run and not execute:
-        console.print(
-            "[red]✗[/red] --dry-run or --execute required for `imports detach`."
-        )
+        console.print("[red]✗[/red] --dry-run or --execute required for `imports detach`.")
         raise typer.Exit(2)
     if dry_run and execute:
-        console.print(
-            "[red]✗[/red] --dry-run and --execute are mutually exclusive."
-        )
+        console.print("[red]✗[/red] --dry-run and --execute are mutually exclusive.")
         raise typer.Exit(2)
 
     local_db = inventory_db_path()
     if not local_db.exists():
-        console.print(
-            f"[red]local inventory.db missing at {local_db}.[/red]"
-        )
+        console.print(f"[red]local inventory.db missing at {local_db}.[/red]")
         raise typer.Exit(2)
 
     try:
@@ -493,9 +467,7 @@ def imports_detach_cmd(
         raise typer.Exit(1) from exc
 
     if dry_run:
-        console.print(
-            f"[yellow]would detach[/yellow] {target.machine_id[:18]}…"
-        )
+        console.print(f"[yellow]would detach[/yellow] {target.machine_id[:18]}…")
         console.print(f"  payload_path      = {target.file_path}")
         console.print(f"  payload_exists    = {target.payload_exists}")
         console.print(f"  exporter_hostname = {target.exporter_hostname or '(unknown)'}")

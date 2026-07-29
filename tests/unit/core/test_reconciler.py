@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Unit tests for the policy reconciler (dedup-retire)."""
+
 from __future__ import annotations
 
 from steward.core.policy.reconciler import ClaimSnapshot, reconcile_dedup_retire
@@ -69,9 +70,7 @@ def test_dropbox_tier_emits_retire_direct_not_stash() -> None:
             "/Volumes/DropboxStorage/.CloudStorage/Data/Dropbox/dup.bin",
         ),
     ]
-    m = reconcile_dedup_retire(
-        claims=claims, policy=policy, steward_version="test"
-    )
+    m = reconcile_dedup_retire(claims=claims, policy=policy, steward_version="test")
     assert len(m.rows) == 1
     row = m.rows[0]
     assert row.action == "retire_direct"

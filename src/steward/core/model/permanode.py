@@ -8,6 +8,7 @@ from ``(canonical_hash, size_bytes)`` — see :mod:`steward.core.ids`.
 
 A permanode is *not* a location on disk. Locations are :class:`Claim`.
 """
+
 from __future__ import annotations
 
 from datetime import datetime

@@ -18,6 +18,7 @@ P with size N." The snapshot itself is a self-contained DB; its own
 audit chain is a prefix of the source's chain up to the snapshot
 moment.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -84,14 +85,9 @@ def backup_inventory_db(
     if not source_path.exists():
         raise BackupError(f"source inventory.db not found: {source_path}")
     if target_path.exists() and not overwrite:
-        raise BackupError(
-            f"target already exists: {target_path}. "
-            f"Pass overwrite=True to replace it."
-        )
+        raise BackupError(f"target already exists: {target_path}. Pass overwrite=True to replace it.")
     if not target_path.parent.exists():
-        raise BackupError(
-            f"target's parent directory does not exist: {target_path.parent}"
-        )
+        raise BackupError(f"target's parent directory does not exist: {target_path.parent}")
 
     started = time.monotonic()
 

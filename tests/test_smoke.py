@@ -1,12 +1,14 @@
 """Smoke test — proves the package can be imported."""
+
 from __future__ import annotations
 
 
 def test_import() -> None:
     """Steward package imports without side effects."""
     import steward
+    from steward._version import __version__ as version_module
 
-    assert steward.__version__ == "0.3.17"
+    assert steward.__version__ == version_module
 
 
 def test_version_string() -> None:

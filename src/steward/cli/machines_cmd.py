@@ -12,6 +12,7 @@ Both are read-only. On a single-machine setup this is mostly a sanity
 check ("yes, my machine_id is what I think it is"); on a multi-machine
 setup it's the entry point for cross-machine debugging.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -36,9 +37,7 @@ console = Console()
 def _ensure_db_ready() -> Path:
     target = inventory_db_path()
     if not target.exists():
-        console.print(
-            f"[yellow]inventory.db missing at {target} — running migrate first[/yellow]"
-        )
+        console.print(f"[yellow]inventory.db missing at {target} — running migrate first[/yellow]")
         migrate(target)
     return target
 
@@ -48,8 +47,7 @@ def list_cmd(
     include_imports: bool = typer.Option(
         False,
         "--include-imports",
-        help="Also include machine_ids from attached (imported) "
-        "inventories (ADR-0013). Default is local-only.",
+        help="Also include machine_ids from attached (imported) inventories (ADR-0013). Default is local-only.",
     ),
 ) -> None:
     """One row per machine that has ever touched the inventory.
@@ -80,19 +78,17 @@ def list_cmd(
             "[green]yes[/green]" if s.is_current else "[dim]no[/dim]",
         ]
         if include_imports:
-            source_marker = (
-                "[green]local[/green]"
-                if s.source == "local"
-                else "[yellow]attached[/yellow]"
-            )
+            source_marker = "[green]local[/green]" if s.source == "local" else "[yellow]attached[/yellow]"
             row.append(source_marker)
-        row.extend([
-            f"{s.claim_count:,}",
-            f"{s.current_claim_count:,}",
-            f"{s.scan_run_count:,}",
-            f"{s.audit_entry_count:,}",
-            (s.last_seen_at or "—"),
-        ])
+        row.extend(
+            [
+                f"{s.claim_count:,}",
+                f"{s.current_claim_count:,}",
+                f"{s.scan_run_count:,}",
+                f"{s.audit_entry_count:,}",
+                (s.last_seen_at or "—"),
+            ]
+        )
         table.add_row(*row)
     console.print(table)
 
@@ -120,10 +116,7 @@ def show_cmd(
         console.print(f"[red]no machine matches {machine_id!r}[/red]")
         raise typer.Exit(2)
     if len(matches) > 1:
-        console.print(
-            f"[red]ambiguous prefix {machine_id!r} — matches "
-            f"{len(matches)} machines[/red]"
-        )
+        console.print(f"[red]ambiguous prefix {machine_id!r} — matches {len(matches)} machines[/red]")
         for m in matches:
             console.print(f"  {m.machine_id}")
         raise typer.Exit(2)
@@ -150,11 +143,7 @@ def show_cmd(
     if include_imports:
         header.add_row(
             "source",
-            (
-                "[green]local[/green]"
-                if s.source == "local"
-                else "[yellow]attached[/yellow]"
-            ),
+            ("[green]local[/green]" if s.source == "local" else "[yellow]attached[/yellow]"),
         )
     header.add_row("claims (total / current)", f"{s.claim_count:,} / {s.current_claim_count:,}")
     header.add_row("scan_runs", f"{s.scan_run_count:,}")

@@ -23,6 +23,7 @@ otherwise. The CLI's ``--limit`` flag maps directly to the SQL
 ``LIMIT`` so caller-supplied bounds prevent surprise on huge
 inventories.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -101,10 +102,7 @@ def _claims_source_clause(schemas: list[str]) -> str:
     if len(schemas) == 1 and schemas[0] == "":
         return "claims"
     parts = []
-    cols = (
-        "permanode_id, tier, volume, domain, classification, "
-        "size_bytes, extension, is_current, observed_at"
-    )
+    cols = "permanode_id, tier, volume, domain, classification, size_bytes, extension, is_current, observed_at"
     for s in schemas:
         prefix = f"{s}." if s else ""
         parts.append(f"SELECT {cols} FROM {prefix}claims")  # nosec B608
@@ -232,9 +230,7 @@ def by_tier(*, db_path: Path, include_imports: bool = False) -> list[TierStat]:
     ]
 
 
-def by_domain(
-    *, db_path: Path, include_imports: bool = False
-) -> list[DomainStat]:
+def by_domain(*, db_path: Path, include_imports: bool = False) -> list[DomainStat]:
     """One row per ``claims.domain`` (NULLs reported as ``None``)."""
     sql = (
         "SELECT domain, COUNT(*) AS claim_count, "
@@ -255,9 +251,7 @@ def by_domain(
     ]
 
 
-def by_extension(
-    *, db_path: Path, limit: int = 20, include_imports: bool = False
-) -> list[ExtensionStat]:
+def by_extension(*, db_path: Path, limit: int = 20, include_imports: bool = False) -> list[ExtensionStat]:
     """Top-``limit`` file extensions by total bytes."""
     sql = (
         "SELECT extension, COUNT(*) AS claim_count, "
@@ -281,9 +275,7 @@ def by_extension(
     ]
 
 
-def by_classification(
-    *, db_path: Path, limit: int = 20, include_imports: bool = False
-) -> list[ClassificationStat]:
+def by_classification(*, db_path: Path, limit: int = 20, include_imports: bool = False) -> list[ClassificationStat]:
     """Top-``limit`` classifications by claim count."""
     sql = (
         "SELECT classification, COUNT(*) AS claim_count, "
@@ -350,9 +342,7 @@ def duplicate_permanodes(
     ]
 
 
-def overview(
-    *, db_path: Path, top_n: int = 5, include_imports: bool = False
-) -> OverviewStat:
+def overview(*, db_path: Path, top_n: int = 5, include_imports: bool = False) -> OverviewStat:
     """Single headline aggregate. Drives ``steward stats`` (no args)."""
     head_sql = (
         "SELECT "
@@ -360,9 +350,7 @@ def overview(
         "(SELECT COUNT(*) FROM {claims} c WHERE is_current = 1), "
         "(SELECT COALESCE(SUM(size_bytes), 0) FROM {claims} c WHERE is_current = 1)"
     )
-    head_rows = _run_with_sources(
-        db_path, include_imports=include_imports, sql_template=head_sql
-    )
+    head_rows = _run_with_sources(db_path, include_imports=include_imports, sql_template=head_sql)
     head = head_rows[0] if head_rows else (0, 0, 0)
     permanodes = int(head[0] or 0)
     current_claims = int(head[1] or 0)
@@ -375,9 +363,7 @@ def overview(
         "WHERE EXISTS (SELECT 1 FROM {claims} c WHERE c.permanode_id = p.id AND c.is_current = 1) "
         "ORDER BY p.size_bytes DESC LIMIT 1"
     )
-    largest_rows = _run_with_sources(
-        db_path, include_imports=include_imports, sql_template=largest_sql
-    )
+    largest_rows = _run_with_sources(db_path, include_imports=include_imports, sql_template=largest_sql)
     largest = (
         DuplicateRow(
             permanode_id=str(largest_rows[0][0]),
@@ -394,9 +380,7 @@ def overview(
         "SELECT permanode_id FROM {claims} c WHERE is_current = 1 "
         "GROUP BY permanode_id HAVING COUNT(*) >= 2)"
     )
-    dup_rows = _run_with_sources(
-        db_path, include_imports=include_imports, sql_template=dup_sql
-    )
+    dup_rows = _run_with_sources(db_path, include_imports=include_imports, sql_template=dup_sql)
     dup_count = int(dup_rows[0][0] or 0) if dup_rows else 0
 
     return OverviewStat(

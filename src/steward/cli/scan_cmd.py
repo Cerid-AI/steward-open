@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """``steward scan`` — walk a root, hash files, insert claims."""
+
 from __future__ import annotations
 
 from pathlib import Path

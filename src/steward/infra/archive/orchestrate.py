@@ -6,6 +6,7 @@ Opens the inventory DB, loads + validates the policy, runs the chosen
 operation, commits, returns the report. Mirrors the pattern in
 :mod:`steward.infra.replicate.orchestrate`.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -41,10 +42,7 @@ def resolve_policy_path(name_or_path: str) -> Path:
 def _load_archive_policy(policy_path: Path) -> ArchivePolicy:
     loaded = load_policy(policy_path)
     if not isinstance(loaded, ArchivePolicy):
-        raise ValueError(
-            f"policy at {policy_path} is not an ArchivePolicy "
-            f"(got {type(loaded).__name__})"
-        )
+        raise ValueError(f"policy at {policy_path} is not an ArchivePolicy (got {type(loaded).__name__})")
     return loaded
 
 

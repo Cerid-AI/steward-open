@@ -7,6 +7,7 @@ Steward's append-only model means a moved file produces a new claim with
 ``is_current=1`` and the prior claim flips to ``is_current=0`` in the same
 transaction — the history is preserved.
 """
+
 from __future__ import annotations
 
 from datetime import datetime

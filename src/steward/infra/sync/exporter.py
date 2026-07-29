@@ -26,6 +26,7 @@ The exporter:
 6. Appends a ``db_export_created`` audit row to the LOCAL DB
    (not the snapshot — its chain is sealed) recording the export.
 """
+
 from __future__ import annotations
 
 import logging
@@ -192,18 +193,12 @@ def export_inventory(
     if not db_path.exists():
         raise ExportError(f"source inventory.db not found: {db_path}")
     if target_path.exists() and not overwrite:
-        raise ExportError(
-            f"target already exists: {target_path}. Pass overwrite=True to replace it."
-        )
+        raise ExportError(f"target already exists: {target_path}. Pass overwrite=True to replace it.")
     if not target_path.parent.exists():
-        raise ExportError(
-            f"target's parent directory does not exist: {target_path.parent}"
-        )
+        raise ExportError(f"target's parent directory does not exist: {target_path.parent}")
 
     started = time.monotonic()
-    excluded = (
-        EXCLUDED_TABLES_WITH_EMBEDDINGS if with_embeddings else EXCLUDED_TABLES_DEFAULT
-    )
+    excluded = EXCLUDED_TABLES_WITH_EMBEDDINGS if with_embeddings else EXCLUDED_TABLES_DEFAULT
     schema_version = _schema_version(db_path)
 
     # Step 1: hot-backup snapshot via SQLite's online-backup API.

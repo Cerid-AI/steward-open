@@ -14,6 +14,7 @@ recomputed hash differs from the stored hash.
 
 The genesis row uses ``GENESIS_PREV_HASH`` as ``prev_hash``.
 """
+
 from __future__ import annotations
 
 import json

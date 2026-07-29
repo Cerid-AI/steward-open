@@ -13,6 +13,7 @@ with scan_start / scan_end audit entries, and returns a
 :class:`steward.infra.scanner.walker.ScanStats`. The walker's
 ``_process_file`` is reused — same code path, same invariants.
 """
+
 from __future__ import annotations
 
 import os
@@ -102,9 +103,7 @@ def scan_paths(
             st = os.lstat(full)
         except OSError as exc:
             stats.files_errored += 1
-            log_swallowed_error(
-                "scanner.incremental.lstat", exc, context={"path": full}
-            )
+            log_swallowed_error("scanner.incremental.lstat", exc, context={"path": full})
             continue
         if not os.path.isfile(full) or os.path.islink(full):
             stats.files_skipped += 1

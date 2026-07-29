@@ -7,6 +7,7 @@ Output is a table of canonical paths sorted by cosine distance
 (closest first). When no embeddings have been written yet, exits with
 a hint to run ``steward embed``.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -53,8 +54,7 @@ def search_cmd(
     target = inventory_db_path()
     if not target.exists():
         console.print(
-            f"[red]inventory.db not found at {target}; "
-            f"run `steward db migrate` and `steward embed` first.[/red]"
+            f"[red]inventory.db not found at {target}; run `steward db migrate` and `steward embed` first.[/red]"
         )
         raise typer.Exit(2)
 
@@ -74,15 +74,10 @@ def search_cmd(
         console.print(f"[red]unknown backend: {backend}[/red]")
         raise typer.Exit(2)
 
-    results = run_semantic_search(
-        db_path=target, embedder=embedder, query=query, k=k
-    )
+    results = run_semantic_search(db_path=target, embedder=embedder, query=query, k=k)
 
     if not results:
-        console.print(
-            "[yellow]no results — run `steward embed` to populate embeddings, "
-            "or widen --k.[/yellow]"
-        )
+        console.print("[yellow]no results — run `steward embed` to populate embeddings, or widen --k.[/yellow]")
         return
 
     table = Table(show_header=True, header_style="bold")

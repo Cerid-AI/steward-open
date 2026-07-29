@@ -11,6 +11,7 @@ Two backends:
   ``onnxruntime`` and a downloaded model under
   ``~/.cache/steward/models/<model>/`` (see :mod:`steward.infra.embed.onnx`).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -48,8 +49,7 @@ def embed_cmd(
     model_dir: Path | None = typer.Option(
         None,
         "--model-dir",
-        help="Override location of the ONNX model files. "
-        "Defaults to ~/.cache/steward/models/<model-name>/.",
+        help="Override location of the ONNX model files. Defaults to ~/.cache/steward/models/<model-name>/.",
     ),
     limit: int | None = typer.Option(
         None,

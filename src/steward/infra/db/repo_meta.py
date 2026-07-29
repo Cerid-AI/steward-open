@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Meta-table accessor — key/value store for schema-version, machine-id, etc."""
+
 from __future__ import annotations
 
 import sqlite3

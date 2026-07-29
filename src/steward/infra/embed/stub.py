@@ -16,6 +16,7 @@ The "model_version" is ``stub-blake3-v1`` so a search query at recall
 time can detect a stub-versus-ONNX mismatch and abort cleanly rather
 than returning meaningless results.
 """
+
 from __future__ import annotations
 
 import struct
@@ -82,9 +83,7 @@ class StubEmbedder:
             vector=vec,
         )
 
-    def embed_batch(
-        self, requests: list[EmbedRequest]
-    ) -> list[Embedding]:
+    def embed_batch(self, requests: list[EmbedRequest]) -> list[Embedding]:
         return [self.embed(r) for r in requests]
 
 

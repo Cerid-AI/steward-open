@@ -15,6 +15,7 @@ Format string example::
 Emits ``"-"`` outside an active run (CLI bootstrap, alembic env, etc.) so
 the format placeholder always resolves.
 """
+
 from __future__ import annotations
 
 import logging

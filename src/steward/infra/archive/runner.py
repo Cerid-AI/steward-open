@@ -12,6 +12,7 @@ Three operations:
   repository. Used once at setup time. Per ADR-0002, the CLI requires
   explicit ``--execute`` to call this.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -57,19 +58,11 @@ class ArchiveSnapshotReport:
 
     @property
     def successes(self) -> int:
-        return sum(
-            1
-            for s in self.sources
-            if s.result is not None and s.result.returncode == 0
-        )
+        return sum(1 for s in self.sources if s.result is not None and s.result.returncode == 0)
 
     @property
     def failures(self) -> int:
-        return sum(
-            1
-            for s in self.sources
-            if s.result is not None and s.result.returncode != 0
-        )
+        return sum(1 for s in self.sources if s.result is not None and s.result.returncode != 0)
 
     @property
     def skipped(self) -> int:
@@ -242,9 +235,7 @@ def run_archive_list(
     )
 
     for repository in report.repositories:
-        result = run_restic_snapshots(
-            defaults=policy.defaults, repository=repository
-        )
+        result = run_restic_snapshots(defaults=policy.defaults, repository=repository)
         if result.returncode == 0:
             for snap in result.snapshots:
                 # Tag the snapshot with its repository so the merged

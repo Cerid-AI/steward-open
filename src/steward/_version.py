@@ -1,3 +1,3 @@
 """Single source of truth for Steward's version."""
 
-__version__: str = "0.3.17"
+__version__: str = "0.3.22"

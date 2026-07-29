@@ -13,6 +13,7 @@ The lint rule in ``scripts/lint-no-silent-catch.py`` blocks new ``except
 Exception: pass`` forms unless they call ``log_swallowed_error(...)`` on
 the same logical site.
 """
+
 from __future__ import annotations
 
 import logging

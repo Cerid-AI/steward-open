@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Repository — claims table access."""
+
 from __future__ import annotations
 
 import os
@@ -50,10 +51,23 @@ def insert(
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
         """,
         (
-            permanode_id, machine_id, file_path, parent, basename, ext,
-            tier, volume, domain, classification,
-            container_path, container_sha256, size_bytes, mtime_iso,
-            ts, scan_run_id, legacy_sha256,
+            permanode_id,
+            machine_id,
+            file_path,
+            parent,
+            basename,
+            ext,
+            tier,
+            volume,
+            domain,
+            classification,
+            container_path,
+            container_sha256,
+            size_bytes,
+            mtime_iso,
+            ts,
+            scan_run_id,
+            legacy_sha256,
         ),
     )
     return int(cur.lastrowid or 0)

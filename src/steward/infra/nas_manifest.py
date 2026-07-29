@@ -10,6 +10,7 @@ export file + audit log instead of silently skipping (pre-v0.3.13).
 The operator (or a future SSH/DSM adapter) consumes the export. Steward
 does not SSH to the NAS in this module.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -64,24 +65,18 @@ def record_nas_manifest_row(
         "export_path": str(export),
         "dry_run": dry_run,
         "operator_next": (
-            "Review export TSV; execute deletes on the NAS via DSM/SSH "
-            "outside Steward; then re-scan the Backup tier."
+            "Review export TSV; execute deletes on the NAS via DSM/SSH outside Steward; then re-scan the Backup tier."
         ),
     }
 
     if dry_run:
-        return NasManifestExportResult(
-            export_path=export, row_index=row_index, dry_run=True
-        )
+        return NasManifestExportResult(export_path=export, row_index=row_index, dry_run=True)
 
     export.parent.mkdir(parents=True, exist_ok=True)
     write_header = not export.exists()
     with export.open("a", encoding="utf-8") as fh:
         if write_header:
-            fh.write(
-                "row_index\tpermanode_id\tcanonical_hash\tsize_bytes\t"
-                "source_path\tsource_tier\trationale\n"
-            )
+            fh.write("row_index\tpermanode_id\tcanonical_hash\tsize_bytes\tsource_path\tsource_tier\trationale\n")
         fh.write(
             f"{row_index}\t{row.permanode_id}\t{row.canonical_hash}\t"
             f"{row.size_bytes}\t{row.source_path}\t{row.source_tier}\t"
@@ -110,15 +105,11 @@ def record_nas_manifest_row(
         manifest_run_id=manifest_run_id,
         permanode_id=row.permanode_id if _permanode_exists(con, row.permanode_id) else None,
     )
-    return NasManifestExportResult(
-        export_path=export, row_index=row_index, dry_run=False
-    )
+    return NasManifestExportResult(export_path=export, row_index=row_index, dry_run=False)
 
 
 def _permanode_exists(con: sqlite3.Connection, permanode_id: str) -> bool:
-    row = con.execute(
-        "SELECT 1 FROM permanodes WHERE id = ?", (permanode_id,)
-    ).fetchone()
+    row = con.execute("SELECT 1 FROM permanodes WHERE id = ?", (permanode_id,)).fetchone()
     return row is not None
 
 

@@ -33,6 +33,7 @@ to preserve the v0.1/v0.2 surface unchanged.
 Aggregators are pure SQL — no subprocess, no network. ``read_only``
 connections everywhere so even a coding bug can't mutate state.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -106,9 +107,7 @@ class MachineDetails:
 
 def _current_machine_id(con: sqlite3.Connection) -> str | None:
     """Read ``meta.machine_id`` — the UUID assigned to this host."""
-    row = con.execute(
-        "SELECT value FROM meta WHERE key = 'machine_id'"
-    ).fetchone()
+    row = con.execute("SELECT value FROM meta WHERE key = 'machine_id'").fetchone()
     return str(row[0]) if row is not None else None
 
 
@@ -165,11 +164,7 @@ def _machine_summary_rows(
     # peer with zero scan / audit activity still belongs on the
     # "known machines" list. Single-schema callers skip this branch
     # to keep the v0.2.9 query plan unchanged.
-    attached_clause = (
-        "UNION SELECT DISTINCT machine_id FROM attached_inventories"
-        if len(schemas) > 1
-        else ""
-    )
+    attached_clause = "UNION SELECT DISTINCT machine_id FROM attached_inventories" if len(schemas) > 1 else ""
 
     # Every dynamic insertion is built by _union_clause from an
     # allowlist of schema names (the local "main" + attached schema
@@ -372,9 +367,7 @@ def get_machine(
         con = connect(db_path, read_only=True, load_vec=False)
         schema_prefix = ""
         try:
-            recent_scans, recent_audit = _fetch_recent_for_machine(
-                con, machine_id, schema_prefix
-            )
+            recent_scans, recent_audit = _fetch_recent_for_machine(con, machine_id, schema_prefix)
         finally:
             con.close()
         return MachineDetails(
@@ -395,9 +388,7 @@ def get_machine(
             # Machine was on the summary list (its row came from somewhere)
             # but the matching attached schema isn't currently mountable.
             return MachineDetails(summary=target)
-        recent_scans, recent_audit = _fetch_recent_for_machine(
-            ctx.connection, machine_id, f"{alias}."
-        )
+        recent_scans, recent_audit = _fetch_recent_for_machine(ctx.connection, machine_id, f"{alias}.")
 
     return MachineDetails(
         summary=target,
@@ -432,10 +423,7 @@ def _fetch_recent_for_machine(
         MachineActivity(
             kind="scan_run",
             timestamp=str(r[1]),
-            summary=(
-                f"scan_run_id={int(r[0])} root={r[2]!s} "
-                f"hashed={int(r[3] or 0)} errors={int(r[4] or 0)}"
-            ),
+            summary=(f"scan_run_id={int(r[0])} root={r[2]!s} hashed={int(r[3] or 0)} errors={int(r[4] or 0)}"),
         )
         for r in con.execute(scans_sql, (machine_id,))
     ]

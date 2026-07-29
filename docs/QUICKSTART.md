@@ -209,7 +209,7 @@ steward watch --root /Volumes/Level\ 2 --debounce-ms 750
 steward watch --root /Volumes/Level\ 2 --once --idle-seconds 10
 
 # Multiple roots are fine.
-steward watch --root /home/operator/Documents --root /Volumes/Backup
+steward watch --root /Users/operator/Documents --root /Volumes/Backup
 ```
 
 Per [ADR-0009](adr/0009-pull-dont-push-inventory.md), the watcher
@@ -220,21 +220,23 @@ still drive `steward apply` yourself.
 
 ## MCP integration
 
-Run the server over stdio (the desktop-LLM-client default):
+This repo ships `.mcp.json` for project-scoped IDE agents. Run explicitly:
 
 ```bash
 steward mcp --transport stdio
-```
-
-Or over HTTP for non-stdio clients:
-
-```bash
+# or loopback HTTP:
 steward mcp --transport http --host 127.0.0.1 --port 8765
 ```
 
-### Claude Desktop snippet
+### Capability modes (ADR-0016)
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+| Env | Default | Effect |
+|---|---|---|
+| `STEWARD_MCP_MODE` | `plan` | `read` \| `plan` \| `write` |
+| `STEWARD_MCP_ACTOR` | `steward-mcp` | Audit actor (set `steward-mcp:<client-id>`) |
+| `STEWARD_MCP_MAX_FILES_CAP` | `50` | Cap for MCP `apply_execute` |
+
+### Claude Desktop / Cerid dual-stack
 
 ```json
 {
@@ -247,15 +249,17 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
-Claude then sees 15 tools (8 read + 7 write). Read tools (`inventory_stats`,
-`find_permanode_by_path`, `get_permanode`, …) are safe to call freely.
-Write tools (`replicate_execute`, `archive_snapshot_execute`,
-`stash_finalize_execute`, …) carry `destructiveHint=True` so Claude
-Desktop surfaces a confirmation UI before invocation.
+Agents see **~25 tools**: inventory/status/inspect/fp, plan tools
+(`policy_plan`, `apply_dry_run` → `plan_token`), and write tools
+(`apply_execute`, replicate/archive/stash execute) gated by mode +
+`destructiveHint=True`.
 
-Every MCP-driven mutation appends a `mcp_write_invoked` audit row
-(actor = `steward-mcp`) so downstream queries can distinguish MCP-driven
-runs from CLI-driven ones.
+**FS apply execute path:** `apply_dry_run` → review → `STEWARD_MCP_MODE=write`
++ `apply_execute(plan_token, max_files=N)`. See
+[`docs/CERID_AGENT_INTEGRATION.md`](CERID_AGENT_INTEGRATION.md).
+
+Every MCP mutation appends `mcp_write_invoked` (actor from
+`STEWARD_MCP_ACTOR`) so forensics can distinguish MCP vs CLI.
 
 ---
 
@@ -704,9 +708,9 @@ Override the substituted paths per-host:
 
 ```bash
 steward schedule install nightly-archive --execute \
-  --home /home/operator \
+  --home /Users/operator \
   --steward-bin /opt/homebrew/bin/steward \
-  --log-dir /home/operator/.local/share/steward/logs
+  --log-dir /Users/operator/.local/share/steward/logs
 ```
 
 The materialized plists land at `~/Library/LaunchAgents/com.cerid.steward.<name>.plist`.

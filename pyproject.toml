@@ -1,11 +1,11 @@
 [project]
 name = "steward"
-version = "0.3.17"
+version = "0.3.22"
 description = "Steward — filesystem stewardship: scan, classify, plan, apply"
 requires-python = ">=3.12,<3.13"
 license = "Apache-2.0"
 authors = [
-    { name = "operator" },
+    { name = "sunrunner" },
 ]
 readme = "README.md"
 
@@ -55,7 +55,6 @@ packages = ["src/steward"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/steward/policies" = "steward/policies"
-"src/steward/launchd" = "steward/launchd"
 
 # ----------------------------------------------------------------------------
 # ruff (matches Cerid 0.15.4 conventions)

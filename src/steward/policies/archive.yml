@@ -28,14 +28,14 @@ defaults:
 
 sources:
   - name: inventory-archive
-    source: "/home/operator/.local/share/steward/inventory.db"
+    source: "/Users/sunrunner/.local/share/steward/inventory.db"
     repository: "/Volumes/Backup/_steward-archive"
     tags: ["inventory"]
     excludes: []
     enabled: true
 
   - name: workspace-archive
-    source: "/home/operator/.local/share/steward/"
+    source: "/Users/sunrunner/.local/share/steward/"
     repository: "/Volumes/Backup/_steward-archive"
     tags: ["user-data"]
     excludes:

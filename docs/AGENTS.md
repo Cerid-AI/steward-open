@@ -73,9 +73,18 @@ Each agent uses the read surface only:
 - `verifier` reads `db verify`, `db integrity`, `db verify --content-spot-check`,
   `stash verify`, `status --json`.
 
-The 7 MCP write tools (v0.2.5) exist for explicit operator-confirmed
-flows; agents stay on the read side because they're spawned
-autonomously inside other tasks and shouldn't surprise the operator.
+MCP write/execute tools (ADR-0011 + ADR-0016) exist for **external**
+operator-confirmed flows under `STEWARD_MCP_MODE=write` and (for apply)
+a one-shot `plan_token`. **Bundled** agents stay on the read/plan side
+because they're spawned autonomously inside other tasks and must not
+surprise the operator (ADR-0012).
+
+### Cerid / external agents
+
+See [`CERID_AGENT_INTEGRATION.md`](CERID_AGENT_INTEGRATION.md). Project
+`.mcp.json` registers Steward stdio. Default mode is `plan` (query +
+dry-run). Enable `write` only with explicit host configuration and
+bounded `max_files` on `apply_execute`.
 
 ## Adding new agents
 

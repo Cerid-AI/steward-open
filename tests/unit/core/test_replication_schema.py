@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Unit tests for the ReplicationPolicy schema + loader."""
+
 from __future__ import annotations
 
 import pytest

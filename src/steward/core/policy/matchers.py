@@ -6,6 +6,7 @@ Pure functions — no I/O, no globals. The matchers operate on already-
 extracted attributes (path, basename, domain, …) so they're cheap to
 re-run on every claim during plan generation.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable

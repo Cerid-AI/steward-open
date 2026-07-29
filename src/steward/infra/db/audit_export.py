@@ -6,6 +6,7 @@ Append-only law (ADR-0003): this module **never deletes** audit rows.
 Exporting to JSONL is for cold storage and forensic tooling; it does
 not shrink ``inventory.db``.
 """
+
 from __future__ import annotations
 
 import json
@@ -63,10 +64,11 @@ def export_audit_log(
         params.extend(actions)
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     lim = f" LIMIT {int(limit)}" if limit is not None else ""
+    # where/lim are built from bound placeholders only (not raw user SQL).
     sql = (
         "SELECT id, timestamp, machine_id, actor, action, permanode_id, "
         "claim_id, manifest_run_id, payload_json, prev_hash, row_hash "
-        f"FROM audit_log{where} ORDER BY id ASC{lim}"
+        f"FROM audit_log{where} ORDER BY id ASC{lim}"  # nosec B608
     )
 
     first_id: int | None = None
@@ -88,9 +90,7 @@ def export_audit_log(
                     "payload_json": row[8],
                     "prev_hash": row[9],
                     "row_hash": row[10],
-                    "exported_at": datetime.now(timezone.utc).isoformat(
-                        timespec="seconds"
-                    ),
+                    "exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 }
                 fh.write(json.dumps(rec, separators=(",", ":"), default=str) + "\n")
                 n += 1

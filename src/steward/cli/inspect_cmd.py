@@ -12,6 +12,7 @@ Both modes support ``--machine <id-or-prefix>`` to filter the claims
 table to a single machine_id (useful once the inventory carries rows
 from multiple machines — see ``steward machines list``).
 """
+
 from __future__ import annotations
 
 import json
@@ -78,9 +79,7 @@ def inspect_cmd(
                     )
                 )
                 raise typer.Exit(1)
-            console.print(
-                f"[red]✗[/red] no machine_id matches prefix {machine!r}"
-            )
+            console.print(f"[red]✗[/red] no machine_id matches prefix {machine!r}")
             raise typer.Exit(1)
 
     if json_output:
@@ -89,16 +88,12 @@ def inspect_cmd(
     _render(result)
 
 
-def _filter_by_machine(
-    r: InspectResult, *, machine: str
-) -> InspectResult | None:
+def _filter_by_machine(r: InspectResult, *, machine: str) -> InspectResult | None:
     """Return a copy of ``r`` with claims filtered to machine_ids that
     start with ``machine``. Returns ``None`` when no claim matches the
     prefix (the operator's prefix is wrong — distinct error from
     "permanode not found")."""
-    matching = [
-        c for c in r.claims if str(c.get("machine_id", "")).startswith(machine)
-    ]
+    matching = [c for c in r.claims if str(c.get("machine_id", "")).startswith(machine)]
     if not matching:
         return None
     return InspectResult(
@@ -122,9 +117,7 @@ def _to_json(r: InspectResult) -> dict[str, object]:
 
 def _render(r: InspectResult) -> None:
     console.print(f"[bold]Permanode[/bold]  {r.permanode_id}")
-    console.print(
-        f"  canonical_hash    {r.canonical_hash}  ({r.canonical_hash_algo})"
-    )
+    console.print(f"  canonical_hash    {r.canonical_hash}  ({r.canonical_hash_algo})")
     console.print(f"  size_bytes        {r.size_bytes:,}")
     console.print(f"  first_seen_at     {r.first_seen_at}")
     console.print(f"  last_seen_at      {r.last_seen_at}")
@@ -141,17 +134,16 @@ def _render(r: InspectResult) -> None:
             row_vals = []
             if has_source:
                 src = c.get("source", "local")
-                row_vals.append(
-                    "[green]local[/green]" if src == "local"
-                    else "[yellow]attached[/yellow]"
-                )
-            row_vals.extend([
-                str(c["id"]),
-                str(c["tier"]),
-                str(c["volume"]),
-                "yes" if c["is_current"] else "no",
-                str(c["file_path"]),
-            ])
+                row_vals.append("[green]local[/green]" if src == "local" else "[yellow]attached[/yellow]")
+            row_vals.extend(
+                [
+                    str(c["id"]),
+                    str(c["tier"]),
+                    str(c["volume"]),
+                    "yes" if c["is_current"] else "no",
+                    str(c["file_path"]),
+                ]
+            )
             tbl.add_row(*row_vals)
         console.print(tbl)
     else:

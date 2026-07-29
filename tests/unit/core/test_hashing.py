@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Unit tests for the hash ladder."""
+
 from __future__ import annotations
 
 from pathlib import Path

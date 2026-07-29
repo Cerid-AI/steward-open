@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Unit tests for the embed domain — value objects, text builder, blob coding."""
+
 from __future__ import annotations
 
 import pytest

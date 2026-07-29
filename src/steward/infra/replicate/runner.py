@@ -12,6 +12,7 @@ Per ADR-0009 (pull-don't-push), Steward's role is to plan + invoke +
 record. The actual byte movement is rclone's; Steward never bypasses
 the dry-run gate.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -54,19 +55,11 @@ class ReplicationReport:
 
     @property
     def successes(self) -> int:
-        return sum(
-            1
-            for s in self.sources
-            if s.result is not None and s.result.returncode == 0
-        )
+        return sum(1 for s in self.sources if s.result is not None and s.result.returncode == 0)
 
     @property
     def failures(self) -> int:
-        return sum(
-            1
-            for s in self.sources
-            if s.result is not None and s.result.returncode != 0
-        )
+        return sum(1 for s in self.sources if s.result is not None and s.result.returncode != 0)
 
     @property
     def skipped(self) -> int:

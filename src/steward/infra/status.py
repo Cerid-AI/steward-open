@@ -19,6 +19,7 @@ Everything is computed off the audit_log + a handful of read-only
 SQL aggregates. No subprocesses, no network calls. ``steward status``
 is intended to be cheap to run on demand.
 """
+
 from __future__ import annotations
 
 import json
@@ -141,15 +142,9 @@ def _inventory_counts(
     pipeline); only the machine count honours ``include_imports``.
     """
     permanodes = int(con.execute("SELECT COUNT(*) FROM permanodes").fetchone()[0])
-    current_claims = int(
-        con.execute(
-            "SELECT COUNT(*) FROM claims WHERE is_current = 1"
-        ).fetchone()[0]
-    )
+    current_claims = int(con.execute("SELECT COUNT(*) FROM claims WHERE is_current = 1").fetchone()[0])
     scan_runs = int(con.execute("SELECT COUNT(*) FROM scan_runs").fetchone()[0])
-    audit_entries = int(
-        con.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0]
-    )
+    audit_entries = int(con.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0])
     machines = count_machines(db_path=db_path, include_imports=include_imports)
     return InventoryCounts(
         permanodes=permanodes,
@@ -166,9 +161,7 @@ def _db_file_info(db_path: Path) -> DbFileInfo:
     try:
         st = db_path.stat()
         size = int(st.st_size)
-        modified = datetime.fromtimestamp(st.st_mtime).isoformat(
-            timespec="seconds"
-        )
+        modified = datetime.fromtimestamp(st.st_mtime).isoformat(timespec="seconds")
     except OSError:
         size = 0
         modified = None
@@ -255,15 +248,11 @@ def _stash_summary(con: sqlite3.Connection) -> StashSummary:
     )
 
 
-def _last_adapter_run(
-    con: sqlite3.Connection, *, end_action: str
-) -> LatestAdapterRun | None:
+def _last_adapter_run(con: sqlite3.Connection, *, end_action: str) -> LatestAdapterRun | None:
     """Fetch the most-recent row with ``action = end_action`` and parse
     its payload. Returns ``None`` when no such row exists yet."""
     row = con.execute(
-        "SELECT timestamp, action, payload_json "
-        "FROM audit_log WHERE action = ? "
-        "ORDER BY id DESC LIMIT 1",
+        "SELECT timestamp, action, payload_json FROM audit_log WHERE action = ? ORDER BY id DESC LIMIT 1",
         (end_action,),
     ).fetchone()
     if row is None:
@@ -272,11 +261,7 @@ def _last_adapter_run(
         payload = json.loads(row[2])
     except (TypeError, json.JSONDecodeError):
         payload = {}
-    policy = (
-        payload.get("policy_name")
-        if isinstance(payload, dict)
-        else None
-    )
+    policy = payload.get("policy_name") if isinstance(payload, dict) else None
     return LatestAdapterRun(
         action=str(row[1]),
         timestamp=str(row[0]),
@@ -300,9 +285,7 @@ _ROLLUP_META_KEY = "status_inventory_rollups"
 _DEFAULT_ROLLUP_MAX_AGE = 24 * 3600
 
 
-def refresh_inventory_rollups(
-    *, db_path: Path, include_imports: bool = False
-) -> InventoryCounts:
+def refresh_inventory_rollups(*, db_path: Path, include_imports: bool = False) -> InventoryCounts:
     """Recompute COUNT aggregates and persist them in ``meta``.
 
     Writes require a read-write connection. Call after large scans /
@@ -312,18 +295,14 @@ def refresh_inventory_rollups(
 
     con = connect(db_path, read_only=False, load_vec=False)
     try:
-        counts = _inventory_counts(
-            con, db_path=db_path, include_imports=include_imports
-        )
+        counts = _inventory_counts(con, db_path=db_path, include_imports=include_imports)
         payload = {
             "permanodes": counts.permanodes,
             "current_claims": counts.current_claims,
             "scan_runs": counts.scan_runs,
             "audit_entries": counts.audit_entries,
             "machines": counts.machines,
-            "refreshed_at": datetime.now(timezone.utc).isoformat(
-                timespec="seconds"
-            ),
+            "refreshed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
         repo_meta.set_(con, _ROLLUP_META_KEY, json.dumps(payload, sort_keys=True))
         con.commit()
@@ -397,9 +376,7 @@ def collect_status(
     rollup_info = RollupInfo(used_cache=False, refreshed_at=None)
 
     if refresh_rollups:
-        inventory = refresh_inventory_rollups(
-            db_path=db_path, include_imports=include_imports
-        )
+        inventory = refresh_inventory_rollups(db_path=db_path, include_imports=include_imports)
         rollup_info = RollupInfo(
             used_cache=False,
             refreshed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -408,11 +385,7 @@ def collect_status(
         con = connect(db_path, read_only=True, load_vec=False)
         try:
             latest_scan = _latest_scan(con)
-            stash = (
-                StashSummary(0, 0, None, None)
-                if quick
-                else _stash_summary(con)
-            )
+            stash = StashSummary(0, 0, None, None) if quick else _stash_summary(con)
             last_replicate = _last_adapter_run(con, end_action="replicate_end")
             last_archive = _last_adapter_run(con, end_action="archive_end")
         finally:
@@ -420,9 +393,7 @@ def collect_status(
     else:
         con = connect(db_path, read_only=True, load_vec=False)
         try:
-            cached = _load_inventory_rollups(
-                con, max_age_seconds=rollup_max_age_seconds
-            )
+            cached = _load_inventory_rollups(con, max_age_seconds=rollup_max_age_seconds)
             if cached is not None:
                 inventory, refreshed_at = cached
                 rollup_info = RollupInfo(
@@ -431,24 +402,16 @@ def collect_status(
                     max_age_seconds=rollup_max_age_seconds,
                 )
             else:
-                inventory = _inventory_counts(
-                    con, db_path=db_path, include_imports=include_imports
-                )
+                inventory = _inventory_counts(con, db_path=db_path, include_imports=include_imports)
             latest_scan = _latest_scan(con)
-            stash = (
-                StashSummary(0, 0, None, None)
-                if quick
-                else _stash_summary(con)
-            )
+            stash = StashSummary(0, 0, None, None) if quick else _stash_summary(con)
             last_replicate = _last_adapter_run(con, end_action="replicate_end")
             last_archive = _last_adapter_run(con, end_action="archive_end")
         finally:
             con.close()
 
     if quick:
-        audit = AuditChainStatus(
-            rows_checked=0, ok=True, error=None, skipped=True
-        )
+        audit = AuditChainStatus(rows_checked=0, ok=True, error=None, skipped=True)
     else:
         audit = _audit_chain(db_path)
 
@@ -471,16 +434,8 @@ def status_to_dict(report: StatusReport) -> dict[str, Any]:
         "inventory": asdict(report.inventory),
         "latest_scan": asdict(report.latest_scan),
         "stash": asdict(report.stash),
-        "last_replicate": (
-            asdict(report.last_replicate)
-            if report.last_replicate is not None
-            else None
-        ),
-        "last_archive": (
-            asdict(report.last_archive)
-            if report.last_archive is not None
-            else None
-        ),
+        "last_replicate": (asdict(report.last_replicate) if report.last_replicate is not None else None),
+        "last_archive": (asdict(report.last_archive) if report.last_archive is not None else None),
         "audit_chain": asdict(report.audit_chain),
     }
     if report.rollups is not None:

@@ -1,6 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Apply-time FP health gate for manifests that touch cloud-FP tiers."""
+"""Apply-time FP health gate for manifests that touch cloud-FP tiers.
+
+Uses :func:`steward.infra.fp_status.collect_fp_status` +
+:class:`~steward.infra.fp_status.FPHealthVerdict`. External-drive File
+Provider (different st_dev, residual Domains.plist unlinked metadata)
+is **not** a hard fail by itself — see field notes 2026-07-28.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -25,43 +32,51 @@ def fp_health_problems(
     *,
     prefer_mount_unlink: bool = True,
 ) -> list[str]:
-    """Return human-readable problems if FP state is unsafe for cloud retire.
+    """Return hard problems if FP state is unsafe for the chosen intent.
 
-    Local-only reclaim (``prefer_mount_unlink=False``) only checks that
-    the store root is present.
+    * Cloud-propagating (``prefer_mount_unlink=True``): missing mount,
+      mount stat errors, store-only dual samples, or hard domain disconnect
+      without a healthy external-drive layout.
+    * Local reclaim (``prefer_mount_unlink=False``): store root must exist.
+
+    Warnings (forked devices, residual unlinked metadata, name divergence)
+    are **not** returned here — they appear on ``steward fp status`` only.
     """
     report = collect_fp_status()
-    problems: list[str] = []
+    verdict = report.verdict
     if prefer_mount_unlink:
+        if verdict is not None:
+            return list(verdict.problems)
+        # Fallback if verdict missing (should not happen)
+        problems: list[str] = []
         if not report.mount.exists:
-            problems.append(
-                f"CloudStorage mount missing or unstatable: {report.mount_root}"
-                + (f" ({report.mount.error})" if report.mount.error else "")
-            )
-        if report.mount.error:
-            problems.append(
-                f"Mount stat error (FP may be congested): {report.mount.error}"
-            )
-        if report.forked_devices:
-            problems.append(
-                "Store and mount appear on different devices or one side is "
-                "missing (forked Dropbox materializations). Cloud-propagating "
-                "retire is unsafe without mount-present objects. Rescan the "
-                "mount, or use --allow-store-path-unlink for local-only reclaim. "
-                "Tree rectification is a separate workstream."
-            )
-        if report.sample_store_only and not report.sample_both:
-            problems.append(
-                "Sample dual-presence is store-only — mount may not have live "
-                "twins for store-path inventory claims."
-            )
-    else:
-        if not report.store.exists:
-            problems.append(
-                f"Dropbox store root missing: {report.store_root}"
-                + (f" ({report.store.error})" if report.store.error else "")
-            )
-    return problems
+            problems.append(f"CloudStorage mount missing or unstatable: {report.mount_root}")
+        return problems
+
+    # Local reclaim
+    if not report.store.exists:
+        return [
+            f"Dropbox store root missing: {report.store_root}"
+            + (f" ({report.store.error})" if report.store.error else "")
+        ]
+    if report.store.error:
+        return [f"Store stat error: {report.store.error}"]
+    return []
 
 
-__all__ = ["fp_health_problems", "manifest_needs_fp_health"]
+def fp_health_warnings(*, prefer_mount_unlink: bool = True) -> list[str]:
+    """Non-blocking warnings for operators (fork, residual domain, names)."""
+    report = collect_fp_status()
+    if report.verdict is None:
+        return []
+    if prefer_mount_unlink:
+        return list(report.verdict.warnings)
+    # Local reclaim: surface name divergence still useful
+    return [w for w in report.verdict.warnings if "basename" in w.lower() or "info.json" in w.lower()]
+
+
+__all__ = [
+    "fp_health_problems",
+    "fp_health_warnings",
+    "manifest_needs_fp_health",
+]

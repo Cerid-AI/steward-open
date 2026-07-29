@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Tests for :mod:`steward.core.audit`."""
+
 from __future__ import annotations
 
 from steward.core.audit import GENESIS_PREV_HASH, canonical_payload, compute_row_hash
@@ -41,5 +42,6 @@ def test_compute_row_hash_chains() -> None:
 
 def test_compute_row_hash_rejects_short_prev() -> None:
     import pytest
+
     with pytest.raises(ValueError):
         compute_row_hash("abc", {"x": 1})

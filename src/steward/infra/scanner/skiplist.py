@@ -8,22 +8,25 @@ plus the macOS / Synology system metadata. The M4 retention policy YAML
 overrides this at apply-time; this list is the *scanner-level* hard
 filter — paths that should never become claims at all.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable
 
 # Directory names — match anywhere in the path tree. ``os.scandir`` skips
 # matching dirs entirely (no recursion).
-DEFAULT_SKIP_DIRS: frozenset[str] = frozenset({
-    ".fseventsd",
-    ".Spotlight-V100",
-    ".Trashes",
-    ".TemporaryItems",
-    ".DocumentRevisions-V100",
-    ".PKInstallSandboxManager",
-    "@eaDir",
-    "@SynoResource",
-})
+DEFAULT_SKIP_DIRS: frozenset[str] = frozenset(
+    {
+        ".fseventsd",
+        ".Spotlight-V100",
+        ".Trashes",
+        ".TemporaryItems",
+        ".DocumentRevisions-V100",
+        ".PKInstallSandboxManager",
+        "@eaDir",
+        "@SynoResource",
+    }
+)
 
 # File-name prefixes — AppleDouble files etc.
 SKIP_FILE_PREFIXES: tuple[str, ...] = ("._",)

@@ -5,6 +5,7 @@
 Every Steward-raised error inherits from :class:`StewardError` so callers
 can catch the family without catching unrelated ``Exception`` subclasses.
 """
+
 from __future__ import annotations
 
 

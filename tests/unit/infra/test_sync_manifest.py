@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Unit tests for the cross-machine wire-format manifest."""
+
 from __future__ import annotations
 
 import json

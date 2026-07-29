@@ -17,6 +17,7 @@ Mutations:
   append a ``inventory_detached`` audit row. Destructive — the CLI
   wrapper requires ``--execute``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -120,9 +121,7 @@ def list_imports(*, db_path: Path) -> list[AttachedInventoryRow]:
     return [_row_to_dataclass(r) for r in rows]
 
 
-def get_import(
-    *, db_path: Path, machine_id_or_prefix: str
-) -> AttachedInventoryRow:
+def get_import(*, db_path: Path, machine_id_or_prefix: str) -> AttachedInventoryRow:
     """Resolve ``machine_id_or_prefix`` to exactly one attached inventory.
 
     Accepts the full machine_id or any unique prefix. Raises
@@ -151,14 +150,11 @@ def get_import(
         con.close()
 
     if not rows:
-        raise ImportsAdminError(
-            f"no attached inventory matches machine_id prefix {needle!r}"
-        )
+        raise ImportsAdminError(f"no attached inventory matches machine_id prefix {needle!r}")
     if len(rows) > 1:
         matches = ", ".join(str(r[0]) for r in rows[:5])
         raise ImportsAdminError(
-            f"prefix {needle!r} matches {len(rows)} attached inventories: "
-            f"{matches}{'...' if len(rows) > 5 else ''}"
+            f"prefix {needle!r} matches {len(rows)} attached inventories: {matches}{'...' if len(rows) > 5 else ''}"
         )
     return _row_to_dataclass(rows[0])
 
@@ -232,8 +228,7 @@ def verify_imports(*, db_path: Path) -> VerifyImportsReport:
         con = connect(db_path, read_only=False, load_vec=False)
         try:
             con.executemany(
-                "UPDATE attached_inventories SET chain_verified_at = ? "
-                "WHERE machine_id = ?",
+                "UPDATE attached_inventories SET chain_verified_at = ? WHERE machine_id = ?",
                 [(now_iso, mid) for mid in chain_ok_machines],
             )
             con.commit()
@@ -358,9 +353,7 @@ def detach_import(
 
 
 def _row_to_dataclass(
-    row: tuple[
-        str, str, str, str, str | None, str, int, str | None, str | None
-    ],
+    row: tuple[str, str, str, str, str | None, str, int, str | None, str | None],
 ) -> AttachedInventoryRow:
     path = Path(str(row[1]))
     return AttachedInventoryRow(
@@ -384,9 +377,7 @@ def _local_machine_id(db_path: Path) -> str:
     finally:
         con.close()
     if not value:
-        raise ImportsAdminError(
-            f"local inventory.db has no machine_id in meta: {db_path}"
-        )
+        raise ImportsAdminError(f"local inventory.db has no machine_id in meta: {db_path}")
     return value
 
 

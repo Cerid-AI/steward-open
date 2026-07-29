@@ -21,6 +21,7 @@ batches, builds canonical input text via
 writes the result. It returns a small :class:`BatchEmbedReport` rather
 than printing, so the CLI can format the summary.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -94,9 +95,7 @@ def write_embedding(con: sqlite3.Connection, *, emb: Embedding) -> int:
     blob = to_blob(emb.vector)
     # vec0 doesn't support INSERT OR REPLACE on its primary key —
     # delete the prior row (no-op if absent) and insert fresh.
-    con.execute(
-        "DELETE FROM embeddings_vec WHERE embedding_id = ?", (row_id,)
-    )
+    con.execute("DELETE FROM embeddings_vec WHERE embedding_id = ?", (row_id,))
     con.execute(
         "INSERT INTO embeddings_vec (embedding_id, embedding) VALUES (?, ?)",
         (row_id, blob),
@@ -146,10 +145,7 @@ def _select_candidate_permanodes(
         sql += f" LIMIT {int(limit)}"
 
     rows = con.execute(sql, params).fetchall()
-    return [
-        (str(r[0]), str(r[1]), str(r[2]), str(r[3]), str(r[4]), str(r[5]))
-        for r in rows
-    ]
+    return [(str(r[0]), str(r[1]), str(r[2]), str(r[3]), str(r[4]), str(r[5])) for r in rows]
 
 
 def embed_permanodes_batch(
@@ -200,7 +196,7 @@ def embed_permanodes_batch(
         buffer.clear()
         pending_pids.clear()
 
-    for (pid, basename, parent_dir, classification, domain, tier) in candidates:
+    for pid, basename, parent_dir, classification, domain, tier in candidates:
         text = build_permanode_text(
             basename=basename,
             parent_dir=parent_dir or None,

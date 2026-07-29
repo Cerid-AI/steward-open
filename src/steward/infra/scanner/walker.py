@@ -26,6 +26,7 @@ The walker has two modes:
 Skipped paths (per :mod:`steward.infra.scanner.skiplist`) are counted in
 ``scan_runs.files_skipped`` but otherwise leave no trace.
 """
+
 from __future__ import annotations
 
 import logging
@@ -54,6 +55,58 @@ from steward.infra.scanner.skiplist import (
 )
 
 logger = logging.getLogger("steward.infra.scanner.walker")
+
+# Mid-walk commit cadence. Parallel workers previously committed only at
+# the end of each top-level subtree, which (a) hid progress for multi-hour
+# Dropbox trees and (b) grew multi-hundred-MB WAL transactions. Override
+# with STEWARD_SCAN_COMMIT_EVERY (integer files; 0 disables mid-walk commits).
+_DEFAULT_COMMIT_EVERY = 250
+
+
+def _commit_every() -> int:
+    raw = os.environ.get("STEWARD_SCAN_COMMIT_EVERY")
+    if raw is None or raw == "":
+        return _DEFAULT_COMMIT_EVERY
+    try:
+        n = int(raw)
+    except ValueError:
+        return _DEFAULT_COMMIT_EVERY
+    return max(0, n)
+
+
+def _bump_scan_run_progress(
+    con: sqlite3.Connection,
+    *,
+    scan_run_id: int,
+    files_walked_delta: int,
+    files_hashed_delta: int,
+    bytes_hashed_delta: int,
+) -> None:
+    """Best-effort live counters on ``scan_runs`` (parallel-safe additive)."""
+    if files_walked_delta == 0 and files_hashed_delta == 0 and bytes_hashed_delta == 0:
+        return
+    try:
+        con.execute(
+            """
+            UPDATE scan_runs
+               SET files_walked = COALESCE(files_walked, 0) + ?,
+                   files_hashed = COALESCE(files_hashed, 0) + ?,
+                   bytes_hashed = COALESCE(bytes_hashed, 0) + ?
+             WHERE id = ?
+            """,
+            (
+                files_walked_delta,
+                files_hashed_delta,
+                bytes_hashed_delta,
+                scan_run_id,
+            ),
+        )
+    except sqlite3.Error as exc:
+        log_swallowed_error(
+            "scanner.walker.progress_bump",
+            exc,
+            context={"scan_run_id": scan_run_id},
+        )
 
 
 @dataclass
@@ -255,10 +308,21 @@ def _walk_serial(
 ) -> ScanStats:
     """Walk files via ``_walk_files(root)`` (or an explicit iterator) and
     process each one. The caller owns the connection and the scan_run row.
+
+    Commits every :func:`_commit_every` files so large trees (e.g. Dropbox
+    external store) show intermediate claims and do not hold a single
+    multi-hour transaction. Final commit is left to the caller when the
+    caller owns a broader transaction; workers commit at subtree end too.
     """
     stats = ScanStats()
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     iterator = files_iter if files_iter is not None else _walk_files(root)
+    cadence = _commit_every()
+    since_commit_walked = 0
+    since_commit_hashed = 0
+    since_commit_bytes = 0
+    last_hashed = 0
+    last_bytes = 0
     for full, st in iterator:
         _process_file(
             con,
@@ -272,6 +336,35 @@ def _walk_serial(
             stats=stats,
             now=now,
         )
+        since_commit_walked += 1
+        # hashed/bytes may stay flat on resume-reuse / skip paths
+        dh = stats.files_hashed - last_hashed
+        db = stats.bytes_hashed - last_bytes
+        last_hashed = stats.files_hashed
+        last_bytes = stats.bytes_hashed
+        since_commit_hashed += dh
+        since_commit_bytes += db
+        if cadence and since_commit_walked >= cadence:
+            _bump_scan_run_progress(
+                con,
+                scan_run_id=scan_run_id,
+                files_walked_delta=since_commit_walked,
+                files_hashed_delta=since_commit_hashed,
+                bytes_hashed_delta=since_commit_bytes,
+            )
+            con.commit()
+            since_commit_walked = 0
+            since_commit_hashed = 0
+            since_commit_bytes = 0
+    if since_commit_walked or since_commit_hashed or since_commit_bytes:
+        _bump_scan_run_progress(
+            con,
+            scan_run_id=scan_run_id,
+            files_walked_delta=since_commit_walked,
+            files_hashed_delta=since_commit_hashed,
+            bytes_hashed_delta=since_commit_bytes,
+        )
+        con.commit()
     return stats
 
 
@@ -290,18 +383,14 @@ def _loose_files_in(root: Path) -> Iterator[tuple[str, os.stat_result]]:
                 if not entry.is_file(follow_symlinks=False):
                     continue
             except OSError as exc:
-                log_swallowed_error(
-                    "scanner.walker.is_file", exc, context={"path": entry.path}
-                )
+                log_swallowed_error("scanner.walker.is_file", exc, context={"path": entry.path})
                 continue
             if is_skipped_file(entry.name):
                 continue
             try:
                 st = entry.stat(follow_symlinks=False)
             except OSError as exc:
-                log_swallowed_error(
-                    "scanner.walker.entry_stat", exc, context={"path": entry.path}
-                )
+                log_swallowed_error("scanner.walker.entry_stat", exc, context={"path": entry.path})
                 continue
             yield entry.path, st
 
@@ -320,9 +409,7 @@ def _subtrees_of(root: Path) -> list[str]:
                 if not entry.is_dir(follow_symlinks=False):
                     continue
             except OSError as exc:
-                log_swallowed_error(
-                    "scanner.walker.is_dir", exc, context={"path": entry.path}
-                )
+                log_swallowed_error("scanner.walker.is_dir", exc, context={"path": entry.path})
                 continue
             if is_skipped_dir(entry.name):
                 continue
@@ -545,10 +632,14 @@ def scan_root(
         },
     )
 
+    # Commit before the walk so:
+    # - parallel workers can see the scan_run row + scan_start audit
+    # - serial long walks (multi-hour Dropbox) expose an unfinished
+    #   scan_runs row to operators before the first mid-walk commit
+    #   (STEWARD_SCAN_COMMIT_EVERY, default 250)
+    con.commit()
+
     if workers >= 2:
-        # Workers need to see the scan_run row + scan_start audit, so
-        # commit before they spawn. Their own writes follow.
-        con.commit()
         assert db_path is not None  # checked above
         stats = _walk_parallel(
             con,
@@ -580,8 +671,15 @@ def scan_root(
                              files_skipped = ?, bytes_hashed = ?, errors = ?
         WHERE id = ?
         """,
-        (ts_end, stats.files_walked, stats.files_hashed, stats.files_skipped,
-         stats.bytes_hashed, stats.files_errored, scan_run_id),
+        (
+            ts_end,
+            stats.files_walked,
+            stats.files_hashed,
+            stats.files_skipped,
+            stats.bytes_hashed,
+            stats.files_errored,
+            scan_run_id,
+        ),
     )
     repo_audit.append(
         con,

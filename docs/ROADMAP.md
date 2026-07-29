@@ -185,15 +185,20 @@ providing the cooling-off.
 | **v0.3.15** | Status rollups + `--quick`/`--refresh`; `steward fp status`; docs consistency; agent refresh. |
 | **v0.3.16** | Dashboard quick default; `apply --require-fp-healthy`; MCP plan tools; tier-auditor update. |
 | **v0.3.17** | `db audit-export`; open-core stage/tarball + PUBLIC_README; `weekly-inventory-export` launchd template. |
+| **v0.3.18** | Dropbox rectification research; `fp status` domain/unlinked + name divergence; preflight hardens. |
+| **v0.3.19** | Systemic Dropbox validation: CloudStorage tier class; health verdict; external-drive FP warnings vs hard fails. |
+| **v0.3.20** | Scanner mid-walk commits + live scan_run progress; Dropbox rectification runbook + post-scan script. |
+| **v0.3.21** | Serial scan_run commit-at-start; mount verify-hash TimeoutError → FPUnavailableError per-row. |
+| **v0.3.22** | ADR-0016 MCP modes + plan_token `apply_execute`; status/scan_status/inspect MCP tools; Cerid agent integration doc. |
 
-## Next (after v0.3.17)
+## Next (after v0.3.22)
 
 **Authoritative open list:** [`OPEN_DEVELOPMENT.md`](OPEN_DEVELOPMENT.md) · **Open-core:** [`OPEN_CORE.md`](OPEN_CORE.md)
 
 ### Still open
 
-- **Dropbox tree rectification (deferred / high-risk):** history + API review before bulk path rewrite.
-- Open-core: create public GitHub repo + push stage (org step); public CI; PyPI name.
+- **Dropbox host repair (operator):** re-link unlinked FP domain; mount rescan; optional path rematerialization — research in [`field-notes-2026-07-28-dropbox-rectification.md`](field-notes-2026-07-28-dropbox-rectification.md). **No bulk path rewrite without that.**
+- Open-core: public CI green; PyPI name; re-sync extract after private changes.
 - Stack bump Python 3.13 + uv (with Cerid — still 3.12).
 - CLIP near-dup; audit-log shrink/chain-archive ADR (cold export does not delete).
 

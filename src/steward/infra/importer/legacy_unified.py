@@ -19,6 +19,7 @@ The importer is **read-only on the source**. It opens the source DB in
 ``mode=ro`` and never issues anything but SELECTs. It does NOT touch
 sprawl-audit's filesystem or scripts.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -158,8 +159,7 @@ def import_legacy(
         batch_count = 0
         for row in src_con.execute(query):
             rows_read += 1
-            (path, sha256, size_bytes, mtime_iso, error, tier, volume,
-             domain, container_path, container_sha256) = row
+            (path, sha256, size_bytes, mtime_iso, error, tier, volume, domain, container_path, container_sha256) = row
 
             # Source rows with errors carry no usable hash → skip but log
             if error or not sha256 or size_bytes is None:
@@ -231,9 +231,15 @@ def import_legacy(
                                            rows_read, rows_inserted, rows_skipped, notes)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (ts_end, str(source), source_sha, rows_read, rows_inserted,
-             rows_noise + rows_skipped + rows_error,
-             f"dry_run={dry_run};noise={rows_noise};src_errors={rows_error};dup={rows_skipped}"),
+            (
+                ts_end,
+                str(source),
+                source_sha,
+                rows_read,
+                rows_inserted,
+                rows_noise + rows_skipped + rows_error,
+                f"dry_run={dry_run};noise={rows_noise};src_errors={rows_error};dup={rows_skipped}",
+            ),
         )
 
         # Audit-log the import end.

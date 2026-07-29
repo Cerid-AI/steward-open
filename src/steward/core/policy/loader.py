@@ -10,6 +10,7 @@ The loader does three things:
 
 A policy YAML must declare both ``version: 1`` and a ``kind`` field.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -42,13 +43,7 @@ _KINDS: dict[
     "RetentionPolicy": RetentionPolicy,
 }
 
-PolicyType = (
-    ArchivePolicy
-    | ClassificationPolicy
-    | PromotionPolicy
-    | ReplicationPolicy
-    | RetentionPolicy
-)
+PolicyType = ArchivePolicy | ClassificationPolicy | PromotionPolicy | ReplicationPolicy | RetentionPolicy
 
 
 def load_policy_from_text(text: str) -> PolicyType:

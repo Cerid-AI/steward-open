@@ -1,6 +1,6 @@
 # Open-core split plan
 
-**Status:** Phase 1 staging ready (2026-07-28)  
+**Status:** Phase 1 public extract live (re-sync 2026-07-29 → v0.3.22)  
 **License:** Apache-2.0 (already)  
 **Current repo:** private `Cerid-AI/steward` (family sibling of Cerid AI)
 
@@ -36,22 +36,17 @@ preservation + unit tests
 | `scripts/export-open-core.sh --stage --tarball` | ✅ |
 | Path allowlist + host-path scrub in stage | ✅ |
 | `docs/open-core/PUBLIC_README.md` | ✅ |
-| Public GitHub repo + first push | ⏳ operator/org: create `Cerid-AI/steward-open` (or agreed name) and push stage |
-| Linux-first public CI | ⏳ after public repo exists |
-| PyPI name (`steward-fs` / `cerid-steward`) | ⏳ name check |
+| Public GitHub repo + first push | ✅ https://github.com/Cerid-AI/steward-open (public) |
+| Linux-first public CI | ✅ `.github/workflows/ci.yml` in open extract |
+| PyPI name (`steward-fs` / `cerid-steward`) | ⏳ name check + publish |
 
 ```bash
-# From private monorepo:
-scripts/export-open-core.sh --stage --tarball
-# Inspect: dist/open-core-stage/
-# Then (once public remote exists):
-#   cd dist/open-core-stage && git init && git add -A && git commit -m "open-core extract"
-#   git remote add origin git@github.com:Cerid-AI/steward-open.git
-#   git push -u origin main
+# Re-sync from private monorepo → public:
+scripts/export-open-core.sh --stage
+# Then replace contents of a checkout of Cerid-AI/steward-open and push.
 ```
 
-**Suggested public name:** `Cerid-AI/steward-open` (avoids colliding with
-private `Cerid-AI/steward`).
+**Public name:** [`Cerid-AI/steward-open`](https://github.com/Cerid-AI/steward-open)
 
 ### Phase 2 — private overlay
 
@@ -84,3 +79,5 @@ private `Cerid-AI/steward`).
 | 2026-07-27 | Operator approved open-core direction |
 | 2026-07-27 | Core purity + ADRs are the public contract |
 | 2026-07-28 | Phase 1 stage/tarball + PUBLIC_README landed in private repo |
+| 2026-07-28 | Public repo `Cerid-AI/steward-open` created + initial extract pushed |
+| 2026-07-29 | Re-sync extract to v0.3.22 (ADR-0016 MCP modes + plan_token apply_execute); public allowlist adds `CERID_AGENT_INTEGRATION.md` + `.mcp.json` |
