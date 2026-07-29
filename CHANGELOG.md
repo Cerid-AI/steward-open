@@ -5,6 +5,18 @@ All notable changes to Steward will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Open-core factory:** `export-open-core.sh --verify` stages + installs + runs
+  public tests; forbids private paths; writes CONTRIBUTING + public CI.
+- **Automation:** private CI job `open-core-export`; tag/`workflow_dispatch`
+  publish to `steward-open` via `OPEN_CORE_DEPLOY_TOKEN`.
+- **Product identity:** public package name target **`steward-fs`**; private
+  monorepo remains sole source of truth until Phase 2 invert
+  (`docs/OPEN_CORE.md`).
+
 ## [0.3.22] — 2026-07-29
 
 Cerid agent MCP integration: capability modes, plan tokens, gated apply_execute.

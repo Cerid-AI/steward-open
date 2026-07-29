@@ -1,11 +1,18 @@
-# Steward (open-core)
+# Steward (open-core) / steward-fs
 
 Filesystem stewardship: **scan, classify, plan, apply**.
 
 This package is the **portable open-core** of Steward — permanode/claim
 inventory, hash ladder, YAML policy engine, plan/apply lifecycle,
-cooling-off stash, append-only audit chain, and cross-platform scanner
-primitives.
+cooling-off stash, append-only audit chain, MCP agent surface, and
+cross-platform scanner primitives.
+
+| | |
+|---|---|
+| **Public repo** | [Cerid-AI/steward-open](https://github.com/Cerid-AI/steward-open) |
+| **PyPI target** | `steward-fs` (planned) |
+| **CLI** | `steward` |
+| **Source of truth** | Private monorepo `Cerid-AI/steward` (see CONTRIBUTING.md) |
 
 Some operator-lab adapters (Photos.app, launchd schedules, private field
 notes) live in the private Cerid overlay and are **not** required to run

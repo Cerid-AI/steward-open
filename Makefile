@@ -1,6 +1,6 @@
 # Steward — developer workflow
 
-.PHONY: help install-dev lint format typecheck imports test preservation lock secrets bandit gates clean
+.PHONY: help install-dev lint format typecheck imports test preservation lock secrets bandit gates open-core open-core-verify clean
 
 help:
 	@echo "Steward developer commands:"
@@ -15,6 +15,8 @@ help:
 	@echo "  make secrets        Run detect-secrets audit"
 	@echo "  make bandit         Run bandit security scan on src/ (matches CI)"
 	@echo "  make gates          Run every CI gate locally before push"
+	@echo "  make open-core      Stage public open-core extract"
+	@echo "  make open-core-verify  Stage + install + public test suite"
 	@echo "  make clean          Remove __pycache__, .pytest_cache, .mypy_cache, .ruff_cache"
 
 # Resolve `.venv/bin/<tool>` first; fall back to the host PATH so CI
@@ -60,6 +62,12 @@ bandit:
 # One-shot "did I break a gate" target before push.
 gates: lint typecheck imports silent-catch test bandit
 	@echo "[gates] all local gates passed."
+
+open-core:
+	./scripts/export-open-core.sh --stage
+
+open-core-verify:
+	./scripts/export-open-core.sh --stage --verify
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

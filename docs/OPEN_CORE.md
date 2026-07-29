@@ -1,76 +1,151 @@
 # Open-core split plan
 
-**Status:** Phase 1 public extract live (re-sync 2026-07-29 → v0.3.22)  
-**License:** Apache-2.0 (already)  
-**Current repo:** private `Cerid-AI/steward` (family sibling of Cerid AI)
+**Status:** Phase 1 hardened (export factory + automated re-sync, 2026-07-29)  
+**License:** Apache-2.0  
+**Private source of truth:** `Cerid-AI/steward`  
+**Public extract:** https://github.com/Cerid-AI/steward-open  
+**PyPI target name:** **`steward-fs`** (CLI remains `steward`)
+
+---
 
 ## Goal
 
-Publish a **public** open-core package that covers the portable stewardship
-core, while keeping operator-specific / macOS-heavy adapters and private
-dogfooding surfaces in the private monorepo (or a private overlay).
+Publish a **portable** open-core that covers the stewardship contract
+(permanode/claim inventory, plan/apply, audit, ADRs, MCP agents), while
+keeping operator-lab adapters and dogfood process private.
 
 ```
-PUBLIC  steward-open / steward-fs       PRIVATE  Cerid-AI/steward (overlay)
-─────────────────────────────           ─────────────────────────────────
-core/ model, hashing, policy            infra/ photos (osxphotos)
-core/ fp_paths, tiers, audit primitives infra/ schedule (launchd) optional
-infra/ db schema + repos (SQLite)       launchd plists (lab cadences)
-infra/ scanner, retire, stash, …        field notes with host paths
-cli/ (core verbs)                       private operator manifests
-policies + ADRs                         inventory.db (never in git)
-preservation + unit tests
+PUBLIC  steward-open / steward-fs          PRIVATE  Cerid-AI/steward
+─────────────────────────────────          ──────────────────────────
+core/ model, hashing, policy, ADRs         field notes (host paths)
+infra/ db, scanner, retire, stash, MCP     photos (osxphotos)
+cli/ core verbs + soft-optional adapters   schedule / launchd lab cadences
+unit + preservation tests                  full integration suite
+CONTRIBUTING: private is source of truth   inventory.db never in git
 ```
+
+---
+
+## Product identity (frozen for Phase 1)
+
+| Surface | Name | Notes |
+|---|---|---|
+| Private git | `Cerid-AI/steward` | Sole source of truth until Phase 2 invert |
+| Public git | `Cerid-AI/steward-open` | Generated extract only |
+| PyPI (planned) | **`steward-fs`** | Avoid name collision; CLI entry point still `steward` |
+| Import package | `steward` | Unchanged |
+
+Do not introduce a third public name without updating this table.
+
+---
+
+## What stays private vs public
+
+### Private only
+
+- `docs/field-notes-*` (host paths, rectification run state)
+- `HANDOFF.md`, operator run artifacts, `inventory.db`
+- `infra/photos`, `infra/schedule`, `launchd/`
+- Multi-GB operational runbooks that encode *this host’s* Dropbox layout
+- Cerid-internal deploy secrets, dual-stack MCP secrets for product agents
+
+### Public (extract allowlist)
+
+- `steward.core` + portable infra (db, migrations, scanner, retire, MCP, …)
+- ADRs (including ADR-0016 agent apply gates)
+- QUICKSTART, ROADMAP, OPEN_CORE, CERID_AGENT_INTEGRATION (generic wiring)
+- Unit + preservation tests; public CI
+- `.mcp.json` with safe defaults (`STEWARD_MCP_MODE=plan`)
+
+### Design rules (both trees)
+
+1. No Cerid runtime dependency in core.  
+2. `steward.core` must not import infra/cli (import-linter).  
+3. Operator-in-the-loop on destructive apply (ADR-0002).  
+4. MCP default capability mode is `plan` (ADR-0016).  
+5. macOS File Provider behaviour is documented, not guaranteed on Linux.  
+6. Inventory data never committed.  
+7. Lab rectification process stays private; portable FP *rules* stay public.
+
+---
 
 ## Phase plan
 
 ### Phase 0 — boundaries ✅
 
-- `steward.core` import-linter pure (enforced).
-- This document + no Cerid runtime dependency.
+- Core purity + this document.
 
-### Phase 1 — public extract package (in progress)
+### Phase 1 — public extract + factory ✅ / hardening ✅
 
-| Step | Status |
+| Capability | How |
 |---|---|
-| `scripts/export-open-core.sh --stage --tarball` | ✅ |
-| Path allowlist + host-path scrub in stage | ✅ |
-| `docs/open-core/PUBLIC_README.md` | ✅ |
-| Public GitHub repo + first push | ✅ https://github.com/Cerid-AI/steward-open (public) |
-| Linux-first public CI | ✅ `.github/workflows/ci.yml` in open extract |
-| PyPI name (`steward-fs` / `cerid-steward`) | ⏳ name check + publish |
+| Stage extract | `scripts/export-open-core.sh --stage` |
+| Self-test | `scripts/export-open-core.sh --stage --verify` |
+| Private CI | `.github/workflows/open-core-export.yml` |
+| Publish to open | Tag `v*` or workflow `Open-core publish` + secret `OPEN_CORE_DEPLOY_TOKEN` |
+| Local publish | `OPEN_CORE_PUSH=1 scripts/sync-steward-open.sh` after verify |
 
-```bash
-# Re-sync from private monorepo → public:
-scripts/export-open-core.sh --stage
-# Then replace contents of a checkout of Cerid-AI/steward-open and push.
-```
+### Phase 2 — private overlay (not started)
 
-**Public name:** [`Cerid-AI/steward-open`](https://github.com/Cerid-AI/steward-open)
+Private monorepo **depends on** published `steward-fs` (or git tag of open)
+and adds only photos / launchd / lab docs.
 
-### Phase 2 — private overlay
+**Start Phase 2 only when all are true:**
 
-- Private repo depends on published package (or git submodule) and adds:
-  - osxphotos, lab launchd defaults, Dropbox volume conventions
-- Dogfood inventory stays local (never in git).
+1. External consumer or real contribution load exists.  
+2. Public CLI flags + manifest TSV columns are stable enough for minor/patch semver.  
+3. Private-only code is a thin adapter surface (&lt; ~15% of tree) with clean entry points.  
+4. `main.py` no longer soft-imports private modules as first-class.  
+5. Export self-test has been green on private CI for ≥2 release cycles.  
+6. PyPI package `steward-fs` is published and installable.
 
 ### Phase 3 — API freeze → v1.0
 
-- Freeze manifest TSV columns, ADR invariants, CLI flags for core verbs.
-- Semver: breaking public CLI changes require major bump.
+- Freeze manifest columns, ADR invariants, core CLI flags.  
+- Breaking public CLI changes require major bump.
+
+---
 
 ## Non-goals (public)
 
-- Operator 8 GiB inventory or NAS topology.
-- Guaranteeing Dropbox FP behaviour on Linux (document macOS-only).
-- Auto-delete on remote NAS without operator export (`nas_manifest`).
-- Dropbox store/mount **rectification** (private lab workstream).
+- Operator multi-TB inventory topology or NAS secrets.  
+- Guaranteeing Dropbox FP behaviour on Linux.  
+- Auto-delete on remote NAS without operator export.  
+- Publishing host rectification run status as product API.  
+- Developing features primarily on steward-open.
+
+---
+
+## Maintainer commands
+
+```bash
+# Verify extract locally (mirrors private CI job)
+scripts/export-open-core.sh --stage --verify
+
+# Publish to steward-open (after verify)
+OPEN_CORE_PUSH=1 scripts/sync-steward-open.sh
+
+# Or: git tag v0.3.23 && git push origin v0.3.23
+# (requires OPEN_CORE_DEPLOY_TOKEN secret on private repo)
+```
+
+### Secret setup (one-time)
+
+1. Create a fine-grained PAT with **Contents: Read and write** on `Cerid-AI/steward-open`.  
+2. Add to private repo secrets as **`OPEN_CORE_DEPLOY_TOKEN`**.  
+3. Confirm `Open-core publish` workflow can push.
+
+---
 
 ## Sync hygiene
 
-- Scrub absolute home paths from public docs/tests (script does a pass).
-- No AI attribution in commits (global commit policy).
-- Detect-secrets + bandit remain on both sides.
+- Allowlist is explicit; missing allowlist paths **fail** the export.  
+- Forbidden globs (field-notes, photos, schedule, pycache) **fail** the export.  
+- Docs-only path scrub; tests/src keep `/Users/operator shapes for tier rules.  
+- No AI attribution in commits (global commit policy).  
+- Public CONTRIBUTING states private is source of truth.
+
+---
 
 ## Decision log
 
@@ -78,6 +153,7 @@ scripts/export-open-core.sh --stage
 |---|---|
 | 2026-07-27 | Operator approved open-core direction |
 | 2026-07-27 | Core purity + ADRs are the public contract |
-| 2026-07-28 | Phase 1 stage/tarball + PUBLIC_README landed in private repo |
-| 2026-07-28 | Public repo `Cerid-AI/steward-open` created + initial extract pushed |
-| 2026-07-29 | Re-sync extract to v0.3.22 (ADR-0016 MCP modes + plan_token apply_execute); public allowlist adds `CERID_AGENT_INTEGRATION.md` + `.mcp.json` |
+| 2026-07-28 | Phase 1 stage/tarball + PUBLIC_README; public repo created |
+| 2026-07-29 | Re-sync v0.3.22; ADR-0016; CERID agent docs; extract factory hardened |
+| 2026-07-29 | Private sole source of truth until Phase 2 invert; PyPI name target `steward-fs` |
+| 2026-07-29 | Automated export verify CI + tag-driven publish workflow |

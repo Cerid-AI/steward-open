@@ -1,4 +1,4 @@
-# Suggested public CI for Cerid-AI/steward-open (copy to .github/workflows/ci.yml)
+# Public CI for Cerid-AI/steward-open (copied into extract as .github/workflows/ci.yml)
 name: CI
 
 on:

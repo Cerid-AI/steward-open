@@ -27,6 +27,7 @@ This is the **authoritative** open-work doc. Supersedes older “next after v0.3
 | Scanner mid-walk commits + rectification runbook | ✅ v0.3.20 |
 | Serial scan_run commit-at-start + verify-hash FP timeout deferral | ✅ v0.3.21 |
 | Cerid MCP modes + plan_token apply_execute (ADR-0016) | ✅ v0.3.22 |
+| Open-core extract factory + auto re-sync | ✅ export `--verify` + workflows |
 
 ---
 

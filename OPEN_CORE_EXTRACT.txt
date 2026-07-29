@@ -1,4 +1,6 @@
 Steward open-core extract
-Generated: 2026-07-29T22:52:48Z
-Source: private Cerid-AI/steward
-See docs/OPEN_CORE.md
+Version: 0.3.22
+Generated: 2026-07-29T23:52:55Z
+Source of truth: private Cerid-AI/steward (export factory)
+Public product name: steward-fs (PyPI target); repo Cerid-AI/steward-open
+See docs/OPEN_CORE.md and CONTRIBUTING.md
