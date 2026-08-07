@@ -26,8 +26,18 @@ For store/mount fork, conflict folders, and rescan order see
 # Example: retention policy that emits retire_direct for Dropbox rows,
 # or a hand-built TSV with action=retire_direct.
 steward policy plan --policy retention.yml --out /tmp/dropbox-retire.tsv
-steward apply --manifest /tmp/dropbox-retire.tsv --dry-run
+
+# ADR-0020: bucket by store/mount dual-presence before bulk cloud retire.
+# Only plan-dual.tsv is cloud-safe (verify==unlink on mount). Never rewrite claims.
+steward plans filter-dual-presence \
+  --manifest /tmp/dropbox-retire.tsv \
+  --out-dir /tmp/dropbox-retire-filtered \
+  --intent cloud_retire
+steward apply --manifest /tmp/dropbox-retire-filtered/plan-dual.tsv --dry-run
 ```
+
+Sample posture without a plan: `steward fp dual-presence --sample 32` (or
+`steward health show` dual_presence section).
 
 ## Execute (cloud-propagating — default)
 

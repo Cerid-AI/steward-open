@@ -5,21 +5,90 @@ All notable changes to Steward will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.24] — 2026-08-07
+
+Inventory **data matrix** + **graphic surface** (ADR-0022): multi-dim claim
+aggregations, SQL path-tree drill, dashboard treemap with dynamic overlays.
+Dashboard wiring expanded for fleet, dual-presence, stats cross, plan detail.
+No daemon; no claim path rewrite.
+
+### Added
+
+- **ADR-0022** inventory surface and data matrix (Accepted).
+- **`steward.core.matrix`**: pure types, validation, path-segment helpers.
+- **`steward stats by-volume`** / **`by_volume`** aggregator (`claims.volume`).
+- **`steward stats cross`** / **`cross_stats`**: 1–2 axis pivots with
+  `path_prefix`, limit, optional `include_imports` (source dimension).
+- **`steward surface tree`**: depth-1 inventory path tree (CLI); **SQL GROUP BY**
+  next segment (no undercount from raw-row caps).
+- **MCP** `inventory_cross_stats`, `inventory_path_tree`.
+- **Dashboard** Surface tab + `GET /api/surface`; **Fleet** tab + `/api/fleet`;
+  stats chips (volume/classifications) + **cross** controls; FP dual-presence
+  sample; Queues plan Detail + dual-presence filter; ops actions
+  `fleet_health`, `dual_presence_sample`, `filter_plan_dual_presence`,
+  `surface_tree`, `plan_show`.
+- Plan: `docs/superpowers/plans/2026-08-07-inventory-surface-data-mx.md`.
+
+### Fixed
+
+- Dashboard `show_policy` / `policy_plan` success payloads now set `ok: true`
+  so HTTP status is 200 (previously missing `ok` mapped to 400).
+- Surface path-tree undercount on multi‑GB inventories (SQL segment aggregate
+  instead of 50k raw-row fetch).
 
 ### Changed
 
-- **Open-core factory:** `export-open-core.sh --verify` stages + installs + runs
-  public tests; forbids private paths; writes CONTRIBUTING + public CI.
-- **Automation:** private CI job `open-core-export`; tag/`workflow_dispatch`
-  publish to `steward-open` via `OPEN_CORE_DEPLOY_TOKEN`.
-- **Product identity:** public package name target **`steward-fs`**; private
-  monorepo remains sole source of truth until Phase 2 invert
-  (`docs/OPEN_CORE.md`).
+- **CI (GHA minutes):** family policy on `.github/workflows/ci.yml` —
+  concurrency cancel, docs `paths-ignore`, consolidated lint (+ silent-catch),
+  `test`/`security`/`preservation` need lint+typecheck, dependabot skips
+  full test unless `dependabot-full-ci`, preservation merge-only
+  (main / merge_group / dispatch).
+
+### Notes
+
+- Surface is **inventory claims only** (not live `du`). Prefer `--prefix` /
+  `--tier` / `--volume` on multi‑GB inventories.
+- Dashboard is an **ops console** (not full CLI parity). Existing EXECUTE-gated
+  rail actions retained. Apply **dry-run** returns `execute_handoff` (CLI +
+  MCP `plan_token`); apply **execute** stays CLI/MCP.
+- Still CLI/MCP-only primary: `scan`/`watch`/`classify`/`embed`/`search`, `db *`,
+  photos, schedule install.
+- Docs: QUICKSTART dashboard section, OPEN_DEVELOPMENT stance, HANDOFF 0.3.24.
+
+## [0.3.23] — 2026-08-06
+
+Estate health foundation: unified storage-estate gate, plan backlog, dual-presence
+cloud-truth hygiene, fleet matrix. No daemon; no audit shrink; no claim path rewrite.
+
+### Added
+
+- **ADR-0017** estate health: `steward health show|check`, `core.health` /
+  `infra.health` (collect, probes, data-dir JSONL snapshots), MCP
+  `estate_health` / `estate_health_check`, dashboard `GET /api/health` +
+  `/api/health/series` + posture banner + `refresh_health`,
+  `status --refresh` snapshot hook.
+- **ADR-0018** audit chain-archive: design only (Proposed; no seal/shrink yet).
+- **ADR-0019** plan backlog + schedule reliability: `steward plans *`,
+  schedule reliability collect, dashboard Queues, MCP `plan_backlog_*`.
+- **ADR-0020** dual-presence: plan filter, `fp dual-presence`, health section,
+  MCP sample/filter tools.
+- **ADR-0021** fleet health matrix: `machines health [--check]`, MCP
+  `fleet_health*`, `GET /api/fleet`, estate health `.fleet` + envelope SLA.
+- **Workflow:** `.grok/workflows/estate-health.rhai` for multi-slice delivery.
+- Docs: QUICKSTART estate health section; README CLI surface; OPEN_DEVELOPMENT
+  landed checklist.
+
+### Fixed
+
+- **`DEFAULT_CHECK_FAIL_ON`** is local integrity only
+  (`stale_scan`, `broken_audit`, `stash_overdue`, `rollup_stale`).
+  `dual_presence_poor`, `fp_not_ready`, and fleet SLA tokens remain known
+  **opt-in** `--fail-on` values (ADR-0017/0020/0021).
 
 ## [0.3.22] — 2026-07-29
 
 Cerid agent MCP integration: capability modes, plan tokens, gated apply_execute.
+Open-core extract factory hardened and re-sync automation.
 
 ### Added
 
@@ -29,6 +98,12 @@ Cerid agent MCP integration: capability modes, plan tokens, gated apply_execute.
 - **MCP tools:** `mcp_capability`, `status`, `scan_status`, `inspect_target`,
   `apply_execute`; `apply_dry_run` gains `require_fp_healthy` + plan_token.
 - **`.mcp.json`** project registration (stdio) + `docs/CERID_AGENT_INTEGRATION.md`.
+- **Open-core factory:** `export-open-core.sh --verify`; private CI
+  `open-core-export`; tag/`workflow_dispatch` publish via
+  `OPEN_CORE_DEPLOY_TOKEN` (`open-core-publish.yml`).
+- **Product identity:** public package name target **`steward-fs`**; private
+  monorepo remains sole source of truth until Phase 2 invert
+  (`docs/OPEN_CORE.md`, public `CONTRIBUTING.md`).
 
 ### Changed
 

@@ -71,7 +71,7 @@ Expect large `retire_direct` sets. **Do not bulk-execute** without dual-presence
 Path-prefix splits (basename on both sides) are **not** enough. Prefer an offline per-file check (no inventory lock):
 
 ```bash
-python scripts/filter-plan-dual-presence.py \
+steward plans filter-dual-presence  # or: python scripts/filter-plan-dual-presence.py \
   --plan /path/to/plan-dropbox-retention.tsv \
   --out-dir /tmp/dropbox-plan-filter \
   --limit 5000   # raise after smoke

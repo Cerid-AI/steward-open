@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import typer
 from rich.console import Console
@@ -138,6 +139,85 @@ def fp_status(
         console.print(f"  • {r}")
     for n in report.notes:
         console.print(f"  [dim]{n}[/dim]")
+
+
+@app.command("dual-presence")
+def fp_dual_presence(
+    sample: int = typer.Option(32, "--sample", min=1, max=10_000, help="Max paths to probe."),
+    db: Path | None = typer.Option(None, "--db", help="Inventory DB for claim sample."),
+    rels: str | None = typer.Option(
+        None,
+        "--rels",
+        help="Comma-separated fixed relatives (fp_status style; ignores --db).",
+    ),
+    store_root: Path | None = typer.Option(None, "--store-root"),
+    mount_root: Path | None = typer.Option(None, "--mount-root"),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON on stdout."),
+) -> None:
+    """Bounded dual-presence sample (ADR-0020). Observe only; no FS mutation."""
+    from steward.infra.dual_presence import (
+        collect_stats_from_fixed_rels,
+        dual_presence_stats_to_dict,
+    )
+
+    if rels:
+        rel_list = [r.strip() for r in rels.split(",") if r.strip()]
+        stats = collect_stats_from_fixed_rels(
+            store_root=store_root,
+            mount_root=mount_root,
+            rels=rel_list,
+            intent="observe",
+        )
+    elif db is not None:
+        from steward.infra.dual_presence import sample_from_inventory
+
+        target = Path(db).expanduser()
+        if not target.is_file():
+            console.print(f"[red]inventory missing:[/red] {target}")
+            raise typer.Exit(2)
+        stats = sample_from_inventory(
+            target,
+            store_root=store_root,
+            mount_root=mount_root,
+            limit=sample,
+            intent="observe",
+        )
+    else:
+        stats = collect_stats_from_fixed_rels(
+            store_root=store_root,
+            mount_root=mount_root,
+            intent="observe",
+        )
+
+    payload = dual_presence_stats_to_dict(stats)
+    if json_output:
+        print(json.dumps(payload, indent=2))
+        return
+    t = Table(title="dual-presence sample", title_justify="left")
+    t.add_column("kind")
+    t.add_column("count", justify="right")
+    for kind in (
+        "dual",
+        "store_only",
+        "mount_only",
+        "missing_store",
+        "conflict_name_path",
+        "outside_store_root",
+        "mount_error",
+        "unknown",
+    ):
+        t.add_row(kind, str(payload.get(kind, 0)))
+    console.print(t)
+    ratio = payload.get("cloud_safe_sample_ratio")
+    console.print(
+        f"counted={stats.counted} ratio={ratio!s} "
+        f"store={stats.store_root} mount={stats.mount_root}"
+    )
+    console.print(
+        "[dim]For bulk cloud retire hygiene: steward plans filter-dual-presence[/dim]"
+    )
+
+
 
 
 __all__ = ["app"]

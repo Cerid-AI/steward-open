@@ -23,10 +23,12 @@ from steward.cli import (
     db_cmd,
     embed_cmd,
     fp_cmd,
+    health_cmd,
     import_cmd,
     inspect_cmd,
     machines_cmd,
     mcp_cmd,
+    plans_cmd,
     policy_cmd,
     replicate_cmd,
     scan_cmd,
@@ -34,6 +36,7 @@ from steward.cli import (
     stash_cmd,
     stats_cmd,
     status_cmd,
+    surface_cmd,
     watch_cmd,
 )
 
@@ -49,6 +52,7 @@ app.add_typer(db_cmd.app, name="db")
 app.add_typer(import_cmd.app, name="import")
 app.add_typer(scan_cmd.app, name="scan")
 app.add_typer(policy_cmd.app, name="policy")
+app.add_typer(plans_cmd.app, name="plans")
 app.add_typer(inspect_cmd.app, name="inspect")
 app.add_typer(apply_cmd.app, name="apply")
 app.add_typer(stash_cmd.app, name="stash")
@@ -63,7 +67,9 @@ app.add_typer(status_cmd.app, name="status")
 app.add_typer(machines_cmd.app, name="machines")
 app.add_typer(dashboard_cmd.app, name="dashboard")
 app.add_typer(stats_cmd.app, name="stats")
+app.add_typer(surface_cmd.app, name="surface")
 app.add_typer(fp_cmd.app, name="fp")
+app.add_typer(health_cmd.app, name="health")
 
 
 def _try_add_optional(module_path: str, name: str) -> None:

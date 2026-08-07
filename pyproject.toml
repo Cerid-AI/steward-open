@@ -1,6 +1,6 @@
 [project]
 name = "steward"
-version = "0.3.22"
+version = "0.3.24"
 description = "Steward — filesystem stewardship: scan, classify, plan, apply"
 requires-python = ">=3.12,<3.13"
 license = "Apache-2.0"

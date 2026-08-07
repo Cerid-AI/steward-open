@@ -35,6 +35,7 @@ from steward.infra.stats import (
     by_domain,
     by_extension,
     by_tier,
+    by_volume,
     duplicate_permanodes,
     overview,
 )
@@ -301,6 +302,98 @@ def duplicates_cmd(
             f"{r.current_claim_count:,}",
         )
     console.print(t)
+
+
+@app.command("by-volume")
+def by_volume_cmd(
+    include_imports: bool = typer.Option(
+        False,
+        "--include-imports",
+        help="Aggregate across attached inventories too (ADR-0013).",
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Claim counts and bytes per claims.volume (ADR-0022)."""
+    target = _ensure_db_ready()
+    rows = by_volume(db_path=target, include_imports=include_imports)
+    if json_output:
+        print(json.dumps([asdict(r) for r in rows], default=str))
+        return
+    t = Table(show_header=True, title="by volume", title_justify="left")
+    t.add_column("volume")
+    t.add_column("claims", justify="right")
+    t.add_column("permanodes", justify="right")
+    t.add_column("bytes", justify="right")
+    for r in rows:
+        t.add_row(
+            r.volume,
+            f"{r.claim_count:,}",
+            f"{r.permanode_count:,}",
+            _format_bytes(r.total_bytes),
+        )
+    console.print(t)
+
+
+@app.command("cross")
+def cross_cmd(
+    dim_a: str = typer.Argument(
+        ...,
+        help="Dimension: tier|domain|volume|extension|classification|machine_id|source",
+    ),
+    dim_b: str | None = typer.Option(None, "--dim-b", help="Optional second dimension"),
+    path_prefix: str | None = typer.Option(None, "--path-prefix"),
+    limit: int = typer.Option(50, "--limit", min=1),
+    include_imports: bool = typer.Option(
+        False,
+        "--include-imports",
+        help="Aggregate across attached inventories too (ADR-0013).",
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Cross-tab claims by one or two dimensions (ADR-0022)."""
+    from steward.core.matrix.types import CrossStatsRequest
+    from steward.core.matrix.validate import MatrixValidationError
+    from steward.infra.stats_matrix import cross_stats, cross_stats_to_dict
+
+    target = _ensure_db_ready()
+    try:
+        req = CrossStatsRequest(
+            dim_a=dim_a,  # type: ignore[arg-type]
+            dim_b=dim_b,  # type: ignore[arg-type]
+            path_prefix=path_prefix,
+            limit=limit,
+            include_imports=include_imports,
+        )
+        res = cross_stats(db_path=target, req=req)
+    except (MatrixValidationError, TypeError, ValueError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(2) from exc
+    if json_output:
+        print(json.dumps(cross_stats_to_dict(res), default=str))
+        return
+    title = f"cross {res.dim_a}" + (f" × {res.dim_b}" if res.dim_b else "")
+    t = Table(show_header=True, title=title, title_justify="left")
+    t.add_column(str(res.dim_a))
+    if res.dim_b:
+        t.add_column(str(res.dim_b))
+    t.add_column("claims", justify="right")
+    t.add_column("permanodes", justify="right")
+    t.add_column("bytes", justify="right")
+    for c in res.cells:
+        row = [c.a or "(none)"]
+        if res.dim_b:
+            row.append(c.b or "(none)")
+        row.extend(
+            [
+                f"{c.claim_count:,}",
+                f"{c.permanode_count:,}",
+                _format_bytes(c.total_bytes),
+            ]
+        )
+        t.add_row(*row)
+    console.print(t)
+    if res.truncated:
+        console.print("[yellow]truncated[/yellow] — raise --limit or add filters")
 
 
 __all__ = ["app"]

@@ -191,7 +191,13 @@ providing the cooling-off.
 | **v0.3.21** | Serial scan_run commit-at-start; mount verify-hash TimeoutError → FPUnavailableError per-row. |
 | **v0.3.22** | ADR-0016 MCP modes + plan_token `apply_execute`; status/scan_status/inspect MCP tools; Cerid agent integration doc. |
 
-## Next (after v0.3.22)
+## Shipped (v0.3.24 — August 2026)
+
+| Release | Theme | Highlights |
+|---|---|---|
+| **v0.3.24** | ADR-0022 inventory surface + data matrix | `core.matrix`, `stats by-volume` / `cross`, `surface tree`, MCP cross/path_tree, dashboard Surface treemap + overlays, plan under `docs/superpowers/plans/` |
+
+## Next (after v0.3.24)
 
 **Authoritative open list:** [`OPEN_DEVELOPMENT.md`](OPEN_DEVELOPMENT.md) · **Open-core:** [`OPEN_CORE.md`](OPEN_CORE.md)
 

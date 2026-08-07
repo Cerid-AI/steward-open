@@ -67,6 +67,23 @@ Do not introduce a third public name without updating this table.
 6. Inventory data never committed.  
 7. Lab rectification process stays private; portable FP *rules* stay public.
 
+### Multi-machine / fleet matrix (PyPI `steward-fs` readiness)
+
+Cross-machine inventory remains **pull-don't-push** (ADR-0013): operators
+move tar.xz envelopes out-of-band; Steward attaches them read-only.
+The fleet health matrix (ADR-0021) is designed to ship in open-core:
+
+| Layer | Public? | Notes |
+|---|---|---|
+| Pure SLA types + fail-on evaluation | Yes (`steward.core`) | No host secrets, no private paths |
+| `collect_fleet_health` + ATTACH SQL | Yes (`steward.infra`) | Temp-DB tests on Linux CI |
+| `steward machines health` CLI / MCP | Yes | Read-only; no daemon |
+| launchd weekly-export template | Optional / private lab | Matrix only *reads* export audit / `exports/` |
+
+No Cerid host paths or field-notes layout may land in matrix code or
+public snapshot payloads. Envelope transport is operator-owned until a
+separate sync-transport ADR (not required for PyPI readiness).
+
 ---
 
 ## Phase plan

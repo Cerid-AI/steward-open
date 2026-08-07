@@ -6,10 +6,12 @@
 list of dataclasses that the CLI renders as a Rich table OR a JSON
 array. The aggregators are pure SQL — no subprocess, no network.
 
-Six entry points:
+Seven entry points (plus ADR-0022 cross-tabs in
+:mod:`steward.infra.stats_matrix`):
 
 * :func:`by_tier` — claim counts + total bytes per tier.
 * :func:`by_domain` — same shape, keyed on ``claims.domain``.
+* :func:`by_volume` — same shape, keyed on ``claims.volume``.
 * :func:`by_extension` — top-N file extensions.
 * :func:`by_classification` — top-N classification labels.
 * :func:`duplicate_permanodes` — permanodes with the most current
@@ -47,6 +49,14 @@ class TierStat:
 @dataclass(frozen=True, slots=True)
 class DomainStat:
     domain: str | None  # ``None`` for unclassified
+    claim_count: int
+    permanode_count: int
+    total_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class VolumeStat:
+    volume: str
     claim_count: int
     permanode_count: int
     total_bytes: int
@@ -251,6 +261,27 @@ def by_domain(*, db_path: Path, include_imports: bool = False) -> list[DomainSta
     ]
 
 
+def by_volume(*, db_path: Path, include_imports: bool = False) -> list[VolumeStat]:
+    """One row per ``claims.volume``, sorted by total_bytes DESC."""
+    sql = (
+        "SELECT volume, COUNT(*) AS claim_count, "
+        "COUNT(DISTINCT permanode_id) AS permanode_count, "
+        "COALESCE(SUM(size_bytes), 0) AS total_bytes "
+        "FROM {claims} c WHERE is_current = 1 GROUP BY volume "
+        "ORDER BY total_bytes DESC, volume ASC"
+    )
+    rows = _run_with_sources(db_path, include_imports=include_imports, sql_template=sql)
+    return [
+        VolumeStat(
+            volume=str(r[0]),
+            claim_count=int(r[1]),
+            permanode_count=int(r[2]),
+            total_bytes=int(r[3]),
+        )
+        for r in rows
+    ]
+
+
 def by_extension(*, db_path: Path, limit: int = 20, include_imports: bool = False) -> list[ExtensionStat]:
     """Top-``limit`` file extensions by total bytes."""
     sql = (
@@ -401,10 +432,12 @@ __all__ = [
     "ExtensionStat",
     "OverviewStat",
     "TierStat",
+    "VolumeStat",
     "by_classification",
     "by_domain",
     "by_extension",
     "by_tier",
+    "by_volume",
     "duplicate_permanodes",
     "overview",
 ]

@@ -1,25 +1,26 @@
-"""HTML status dashboard.
+"""HTML status dashboard (ops console — intentional non-parity).
 
-A single-page operator dashboard served over plain HTTP. The page
-renders the same data ``steward status`` prints to the terminal —
-inventory counts, latest scan, stash summary, last replicate/archive
-runs, audit-chain status, machines.
+A single-page **operator ops console** over plain HTTP. It is **not** a
+full mirror of every ``steward`` CLI verb. Product stance:
 
-The implementation uses Python's stdlib ``http.server`` so there are
-no new runtime deps. The page is server-rendered HTML with inline
-CSS + a 30-second meta-refresh — no JavaScript framework, no
-build step. Operators see live state by opening
-``http://127.0.0.1:8080/`` in any browser.
+* **Always GUI:** status, estate health, fleet matrix, inventory stats /
+  surface exploration, inspect, FP + dual-presence sample, plan backlog.
+* **Usually GUI:** policy plan, apply dry-run (with execute *handoff*),
+  dual-presence plan filter, replicate/archive dry-run, selected
+  EXECUTE-gated adapter actions already in the ops rail.
+* **CLI/MCP primary:** scan/watch/classify/embed, ``db *`` lifecycle,
+  ``apply --execute`` as structural SoT (ADR-0002/0016), photos,
+  schedule install, env/policy file SoT.
 
-Two endpoints:
+Do **not** remove existing ops-rail controls when extending the console.
 
-* ``GET /`` — rendered HTML
-* ``GET /status.json`` — same shape as ``steward status --json``
+Implementation: stdlib ``http.server``, SSR HTML + inline CSS/JS:
 
-Per ADR-0009 (pull-don't-push), the dashboard is **read-only**. No
-write surface; no mutation. The bind defaults to ``127.0.0.1`` so the
-page is never accessible off the operator's machine without explicit
-opt-in.
+* Soft-poll ``/status.json`` (estate ``posture``)
+* Analysis panes: scans, audit, stats, surface, fleet, inspector, …
+* Loopback ``POST /api/actions`` (destructive requires typing ``EXECUTE``)
+
+Bind defaults to ``127.0.0.1``.
 """
 
 from steward.infra.dashboard.render import render_status_html

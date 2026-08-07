@@ -73,6 +73,44 @@ def build_server(name: str = "steward") -> FastMCP:
         return handlers.inventory_stats(inventory_db_path(), include_imports=include_imports)
 
     @server.tool(annotations=_READ)
+    def inventory_cross_stats(
+        dim_a: str,
+        dim_b: str | None = None,
+        path_prefix: str | None = None,
+        limit: int = 50,
+        include_imports: bool = False,
+    ) -> dict[str, Any]:
+        """Cross-tab claims by one or two dimensions (ADR-0022 data matrix)."""
+        return handlers.inventory_cross_stats(
+            inventory_db_path(),
+            dim_a=dim_a,
+            dim_b=dim_b,
+            path_prefix=path_prefix,
+            limit=limit,
+            include_imports=include_imports,
+        )
+
+    @server.tool(annotations=_READ)
+    def inventory_path_tree(
+        path_prefix: str = "",
+        color_by: str = "none",
+        tier: str | None = None,
+        volume: str | None = None,
+        child_limit: int = 100,
+        include_imports: bool = False,
+    ) -> dict[str, Any]:
+        """Depth-1 path tree for inventory surface exploration (ADR-0022)."""
+        return handlers.inventory_path_tree(
+            inventory_db_path(),
+            path_prefix=path_prefix,
+            color_by=color_by,
+            tier=tier,
+            volume=volume,
+            child_limit=child_limit,
+            include_imports=include_imports,
+        )
+
+    @server.tool(annotations=_READ)
     def status(quick: bool = True, include_imports: bool = False) -> dict[str, Any]:
         """Operator status report (like `steward status --quick`)."""
         return handlers.status_snapshot(quick=quick, include_imports=include_imports)
@@ -161,6 +199,98 @@ def build_server(name: str = "steward") -> FastMCP:
         """Dropbox store vs CloudStorage mount health probe."""
         return handlers.fp_status()
 
+    @server.tool(annotations=_READ)
+    def dual_presence_sample(
+        sample: int = 32,
+        rels: list[str] | None = None,
+        use_db: bool = True,
+    ) -> dict[str, Any]:
+        """Bounded dual-presence stats (ADR-0020). Read-only; no claim rewrite."""
+        return handlers.dual_presence_sample(sample=sample, rels=rels, use_db=use_db)
+
+
+    @server.tool(annotations=_READ)
+    def estate_health(
+        quick: bool = True,
+        include_imports: bool = False,
+        probes: bool = False,
+    ) -> dict[str, Any]:
+        """Composite estate health (ADR-0017). Default quick; read-only."""
+        return handlers.estate_health(
+            quick=quick,
+            include_imports=include_imports,
+            probes=probes,
+        )
+
+    @server.tool(annotations=_READ)
+    def estate_health_check(
+        quick: bool = True,
+        include_imports: bool = False,
+        probes: bool = False,
+        fail_on: list[str] | None = None,
+        scan_max_age_hours: float | None = None,
+        stash_grace_hours: float | None = None,
+        rollup_max_age_hours: float | None = None,
+    ) -> dict[str, Any]:
+        """Evaluate estate health fail-on gates (ADR-0017). Read-only."""
+        return handlers.estate_health_check(
+            quick=quick,
+            include_imports=include_imports,
+            probes=probes,
+            fail_on=fail_on,
+            scan_max_age_hours=scan_max_age_hours,
+            stash_grace_hours=stash_grace_hours,
+            rollup_max_age_hours=rollup_max_age_hours,
+        )
+
+
+
+    @server.tool(annotations=_READ)
+    def fleet_health(
+        include_imports: bool = True,
+        quick: bool = True,
+    ) -> dict[str, Any]:
+        """Multi-machine fleet health matrix (ADR-0021). Default include_imports."""
+        return handlers.fleet_health(
+            include_imports=include_imports,
+            quick=quick,
+        )
+
+    @server.tool(annotations=_READ)
+    def fleet_health_check(
+        include_imports: bool = True,
+        quick: bool = True,
+        fail_on: list[str] | None = None,
+        scan_max_age_hours: float | None = None,
+        envelope_max_age_hours: float | None = None,
+        attached_max_age_days: float | None = None,
+        chain_verify_max_age_days: float | None = None,
+    ) -> dict[str, Any]:
+        """Evaluate fleet fail-on gates (ADR-0021). Read-only."""
+        return handlers.fleet_health_check(
+            include_imports=include_imports,
+            quick=quick,
+            fail_on=fail_on,
+            scan_max_age_hours=scan_max_age_hours,
+            envelope_max_age_hours=envelope_max_age_hours,
+            attached_max_age_days=attached_max_age_days,
+            chain_verify_max_age_days=chain_verify_max_age_days,
+        )
+
+    @server.tool(annotations=_READ)
+    def plan_backlog_list(
+        status: str | None = None,
+        policy: str | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """List plan backlog records (ADR-0019). Read-only data-dir registry."""
+        return handlers.plan_backlog_list(status=status, policy=policy, limit=limit)
+
+    @server.tool(annotations=_READ)
+    def plan_backlog_show(plan_id: str) -> dict[str, Any]:
+        """Show one plan backlog record by plan_id (manifest_run_id)."""
+        return handlers.plan_backlog_show(plan_id=plan_id)
+
     # ─────────────── plan tools (STEWARD_MCP_MODE>=plan) ───────────────
 
     @server.tool(annotations=_PLAN)
@@ -175,6 +305,30 @@ def build_server(name: str = "steward") -> FastMCP:
         except McpCapabilityError as exc:
             return _capability_error(exc)
         return handlers.policy_plan(policy=policy, out_path=out_path, root_prefix=root_prefix)
+
+
+    @server.tool(annotations=_PLAN)
+    def filter_plan_dual_presence(
+        manifest_path: str,
+        out_dir: str | None = None,
+        limit: int = 0,
+        path_col: str = "source_path",
+        intent: str = "cloud_retire",
+        register_with: str | None = None,
+    ) -> dict[str, Any]:
+        """Bucket plan TSV by dual-presence; write sidecars under data-dir (ADR-0020)."""
+        try:
+            require_mode(McpMode.PLAN, tool="filter_plan_dual_presence")
+        except McpCapabilityError as exc:
+            return _capability_error(exc)
+        return handlers.filter_plan_dual_presence(
+            manifest_path=manifest_path,
+            out_dir=out_dir,
+            limit=limit,
+            path_col=path_col,
+            intent=intent,
+            register_with=register_with,
+        )
 
     @server.tool(annotations=_PLAN)
     def apply_dry_run(

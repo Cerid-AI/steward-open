@@ -84,6 +84,11 @@ def plan_cmd(
         "--limit",
         help="Cap the number of rows in the produced manifest (PromotionPolicy only).",
     ),
+    no_register: bool = typer.Option(
+        False,
+        "--no-register",
+        help="Skip plan backlog registration under the data dir (ADR-0019).",
+    ),
 ) -> None:
     """Generate a plan manifest by reconciling the policy against current claims.
 
@@ -104,6 +109,7 @@ def plan_cmd(
         root_prefix=root,
         phase_name=phase,
         max_files=limit,
+        register=not no_register,
     )
     console.print(f"[green]✓[/green] wrote {summary.out_path}")
     console.print(f"  manifest_run_id   = {summary.manifest_run_id}")
@@ -113,6 +119,15 @@ def plan_cmd(
         console.print(f"  nas_manifest rows = {summary.nas_manifest_rows:,}")
     if summary.promote_rows:
         console.print(f"  promote rows      = {summary.promote_rows:,}")
+    if summary.retire_direct_rows:
+        console.print(f"  retire_direct     = {summary.retire_direct_rows:,}")
+    if summary.estimated_bytes:
+        console.print(f"  estimated_bytes   = {summary.estimated_bytes:,}")
+    if summary.plan_id and summary.registered_path:
+        console.print(f"  plan_id           = {summary.plan_id}")
+        console.print(f"  registered        = {summary.registered_path}")
+    if summary.blocked_reasons:
+        console.print(f"  blocked_reasons   = {list(summary.blocked_reasons)}")
     if root:
         console.print(f"  root prefix       = {root}")
     if phase:

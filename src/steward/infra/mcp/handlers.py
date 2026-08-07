@@ -60,6 +60,68 @@ def inventory_stats(db_path: Path, *, include_imports: bool = False) -> dict[str
     }
 
 
+def inventory_cross_stats(
+    db_path: Path,
+    *,
+    dim_a: str,
+    dim_b: str | None = None,
+    path_prefix: str | None = None,
+    limit: int = 50,
+    include_imports: bool = False,
+) -> dict[str, Any]:
+    """Multi-dimensional claim aggregation (ADR-0022)."""
+    from steward.core.matrix.types import CrossStatsRequest
+    from steward.core.matrix.validate import MatrixValidationError
+    from steward.infra.stats_matrix import cross_stats, cross_stats_to_dict
+
+    try:
+        req = CrossStatsRequest(
+            dim_a=dim_a,  # type: ignore[arg-type]
+            dim_b=dim_b,  # type: ignore[arg-type]
+            path_prefix=path_prefix,
+            limit=limit,
+            include_imports=include_imports,
+        )
+        result = cross_stats(db_path=db_path, req=req)
+    except MatrixValidationError as exc:
+        return {"ok": False, "error": str(exc)}
+    out = cross_stats_to_dict(result)
+    out["ok"] = True
+    return out
+
+
+def inventory_path_tree(
+    db_path: Path,
+    *,
+    path_prefix: str = "",
+    color_by: str = "none",
+    tier: str | None = None,
+    volume: str | None = None,
+    child_limit: int = 100,
+    include_imports: bool = False,
+) -> dict[str, Any]:
+    """Depth-1 path tree for inventory surface (ADR-0022)."""
+    from steward.core.matrix.types import PathTreeRequest
+    from steward.core.matrix.validate import MatrixValidationError
+    from steward.infra.stats_tree import path_tree_depth1, path_tree_to_dict
+
+    try:
+        req = PathTreeRequest(
+            path_prefix=path_prefix,
+            color_by=color_by,  # type: ignore[arg-type]
+            tier=tier,
+            volume=volume,
+            child_limit=child_limit,
+            include_imports=include_imports,
+        )
+        result = path_tree_depth1(db_path=db_path, req=req)
+    except MatrixValidationError as exc:
+        return {"ok": False, "error": str(exc)}
+    out = path_tree_to_dict(result)
+    out["ok"] = True
+    return out
+
+
 # ─────────────────────── search by path / hash ──────────────────────────
 
 
@@ -468,7 +530,7 @@ def policy_plan(
         p = bundled
     out = _Path(out_path) if out_path else (data_dir() / "runs" / "mcp-plan.tsv")
     try:
-        summary = _plan(policy_path=p, out_path=out, root_prefix=root_prefix)
+        summary = _plan(policy_path=p, out_path=out, root_prefix=root_prefix, register=True)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc)}
     return {
@@ -481,7 +543,51 @@ def policy_plan(
         "nas_manifest_rows": summary.nas_manifest_rows,
         "promote_rows": summary.promote_rows,
         "manifest_run_id": summary.manifest_run_id,
+        "plan_id": summary.plan_id or summary.manifest_run_id,
+        "estimated_bytes": summary.estimated_bytes,
+        "blocked_reasons": list(summary.blocked_reasons or ()),
+        "registered_path": summary.registered_path,
+        "action_counts": dict(summary.action_counts or {}),
     }
+
+
+def plan_backlog_list(
+    *,
+    status: str | None = None,
+    policy: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """List plan backlog records from the data-dir registry (ADR-0019). Read-only."""
+    from steward.core.plans.model import plan_record_to_compact_dict
+    from steward.infra.observability.swallowed import log_swallowed_error
+    from steward.infra.plans import list_plans
+
+    try:
+        records = list_plans(status=status, policy=policy, limit=limit)
+    except Exception as exc:  # noqa: BLE001
+        log_swallowed_error("mcp.handlers.plan_backlog_list", exc, context={})
+        return {"ok": False, "error": str(exc), "plans": []}
+    return {
+        "ok": True,
+        "count": len(records),
+        "plans": [plan_record_to_compact_dict(r) for r in records],
+    }
+
+
+def plan_backlog_show(*, plan_id: str) -> dict[str, Any]:
+    """Show one plan backlog record (full summary). Read-only."""
+    from steward.core.plans.model import plan_record_to_dict
+    from steward.infra.observability.swallowed import log_swallowed_error
+    from steward.infra.plans import show_plan
+
+    try:
+        rec = show_plan(plan_id)
+    except Exception as exc:  # noqa: BLE001
+        log_swallowed_error("mcp.handlers.plan_backlog_show", exc, context={"plan_id": plan_id})
+        return {"ok": False, "error": str(exc)}
+    if rec is None:
+        return {"ok": False, "error": f"plan not found: {plan_id}"}
+    return {"ok": True, "plan": plan_record_to_dict(rec)}
 
 
 def apply_dry_run(
@@ -857,6 +963,326 @@ def fp_status() -> dict[str, Any]:
     return fp_status_to_dict(collect_fp_status())
 
 
+
+
+def estate_health(
+    *,
+    quick: bool = True,
+    include_imports: bool = False,
+    probes: bool = False,
+) -> dict[str, Any]:
+    """Composite estate health report (ADR-0017). Read-only; default quick."""
+    from steward.infra.db.settings import inventory_db_path
+    from steward.infra.health import collect_estate_health, estate_health_to_dict
+
+    db = inventory_db_path()
+    if not db.exists():
+        return {"ok": False, "error": f"inventory missing: {db}"}
+    try:
+        report = collect_estate_health(
+            db_path=db,
+            quick=quick,
+            include_imports=include_imports,
+            probes=probes,
+        )
+    except Exception as exc:  # noqa: BLE001
+        from steward.infra.observability.swallowed import log_swallowed_error
+
+        log_swallowed_error("mcp.handlers.estate_health", exc, context={})
+        return {"ok": False, "error": str(exc)}
+    out = estate_health_to_dict(report)
+    out["ok"] = True
+    return out
+
+
+def estate_health_check(
+    *,
+    quick: bool = True,
+    include_imports: bool = False,
+    probes: bool = False,
+    fail_on: list[str] | None = None,
+    scan_max_age_hours: float | None = None,
+    stash_grace_hours: float | None = None,
+    rollup_max_age_hours: float | None = None,
+) -> dict[str, Any]:
+    """Evaluate estate health against fail-on tokens (ADR-0017). Read-only."""
+    from steward.core.health.evaluate import evaluate_fail_on, validate_fail_on_tokens
+    from steward.core.health.thresholds import (
+        DEFAULT_CHECK_FAIL_ON,
+        DEFAULT_THRESHOLDS,
+        KNOWN_FAIL_ON_TOKENS,
+        HealthThresholds,
+    )
+    from steward.infra.db.settings import inventory_db_path
+    from steward.infra.health import collect_estate_health, estate_health_to_dict
+
+    db = inventory_db_path()
+    if not db.exists():
+        return {"ok": False, "error": f"inventory missing: {db}"}
+
+    if fail_on is None:
+        tokens: frozenset[str] = DEFAULT_CHECK_FAIL_ON
+    else:
+        tokens = frozenset(str(t).strip() for t in fail_on if str(t).strip())
+    unknown = validate_fail_on_tokens(tokens)
+    if unknown:
+        return {
+            "ok": False,
+            "error": f"unknown fail_on token(s): {', '.join(unknown)}",
+            "unknown": unknown,
+            "known": sorted(KNOWN_FAIL_ON_TOKENS),
+        }
+
+    base = DEFAULT_THRESHOLDS
+    thr = HealthThresholds(
+        scan_max_age_hours=scan_max_age_hours if scan_max_age_hours is not None else base.scan_max_age_hours,
+        stash_grace_hours=stash_grace_hours if stash_grace_hours is not None else base.stash_grace_hours,
+        cooling_off_days=base.cooling_off_days,
+        adapter_max_age_hours=base.adapter_max_age_hours,
+        rollup_max_age_hours=rollup_max_age_hours if rollup_max_age_hours is not None else base.rollup_max_age_hours,
+        attached_max_age_days=base.attached_max_age_days,
+        free_bytes_min=base.free_bytes_min,
+        free_ratio_min=base.free_ratio_min,
+        sample_latency_warn_ms=base.sample_latency_warn_ms,
+        unfinished_scan_warn_hours=base.unfinished_scan_warn_hours,
+    )
+    try:
+        report = collect_estate_health(
+            db_path=db,
+            quick=quick,
+            include_imports=include_imports,
+            probes=probes,
+            thresholds=thr,
+        )
+    except Exception as exc:  # noqa: BLE001
+        from steward.infra.observability.swallowed import log_swallowed_error
+
+        log_swallowed_error("mcp.handlers.estate_health_check", exc, context={})
+        return {"ok": False, "error": str(exc)}
+
+    failed = evaluate_fail_on(report, tokens, thresholds=thr)
+    return {
+        "ok": len(failed) == 0,
+        "failed": [
+            {"name": c.name, "level": c.level, "message": c.message, "details": c.details}
+            for c in failed
+        ],
+        "fail_on": sorted(tokens),
+        "report": estate_health_to_dict(report),
+    }
+
+
+
+
+
+
+def fleet_health(
+    *,
+    include_imports: bool = True,
+    quick: bool = True,
+) -> dict[str, Any]:
+    """Multi-machine fleet health matrix (ADR-0021). Read-only; default include_imports."""
+    from steward.infra.db.settings import data_dir, inventory_db_path
+    from steward.infra.fleet import collect_fleet_health, fleet_health_to_dict
+
+    db = inventory_db_path()
+    if not db.exists():
+        return {"ok": False, "error": f"inventory missing: {db}"}
+    try:
+        matrix = collect_fleet_health(
+            db_path=db,
+            include_imports=include_imports,
+            quick=quick,
+            data_dir=data_dir(),
+        )
+    except Exception as exc:  # noqa: BLE001
+        from steward.infra.observability.swallowed import log_swallowed_error
+
+        log_swallowed_error("mcp.handlers.fleet_health", exc, context={})
+        return {"ok": False, "error": str(exc)}
+    out = fleet_health_to_dict(matrix)
+    out["ok"] = True
+    return out
+
+
+def fleet_health_check(
+    *,
+    include_imports: bool = True,
+    quick: bool = True,
+    fail_on: list[str] | None = None,
+    scan_max_age_hours: float | None = None,
+    envelope_max_age_hours: float | None = None,
+    attached_max_age_days: float | None = None,
+    chain_verify_max_age_days: float | None = None,
+) -> dict[str, Any]:
+    """Evaluate fleet fail-on gates (ADR-0021). Read-only."""
+    from steward.core.fleet import (
+        DEFAULT_FLEET_CHECK_FAIL_ON,
+        DEFAULT_FLEET_THRESHOLDS,
+        KNOWN_FLEET_FAIL_ON_TOKENS,
+        FleetThresholds,
+        evaluate_fleet_fail_on,
+        validate_fleet_fail_on_tokens,
+    )
+    from steward.infra.db.settings import data_dir, inventory_db_path
+    from steward.infra.fleet import collect_fleet_health, fleet_health_to_dict
+
+    db = inventory_db_path()
+    if not db.exists():
+        return {"ok": False, "error": f"inventory missing: {db}"}
+
+    if fail_on is None:
+        tokens: frozenset[str] = DEFAULT_FLEET_CHECK_FAIL_ON
+    else:
+        tokens = frozenset(str(t).strip() for t in fail_on if str(t).strip())
+    unknown = validate_fleet_fail_on_tokens(tokens)
+    if unknown:
+        return {
+            "ok": False,
+            "error": f"unknown fail_on token(s): {', '.join(unknown)}",
+            "unknown": unknown,
+            "known": sorted(KNOWN_FLEET_FAIL_ON_TOKENS),
+        }
+
+    base = DEFAULT_FLEET_THRESHOLDS
+    thr = FleetThresholds(
+        scan_max_age_hours=(
+            scan_max_age_hours if scan_max_age_hours is not None else base.scan_max_age_hours
+        ),
+        envelope_max_age_hours=(
+            envelope_max_age_hours
+            if envelope_max_age_hours is not None
+            else base.envelope_max_age_hours
+        ),
+        attached_max_age_days=(
+            attached_max_age_days
+            if attached_max_age_days is not None
+            else base.attached_max_age_days
+        ),
+        chain_verify_max_age_days=(
+            chain_verify_max_age_days
+            if chain_verify_max_age_days is not None
+            else base.chain_verify_max_age_days
+        ),
+    )
+    try:
+        matrix = collect_fleet_health(
+            db_path=db,
+            include_imports=include_imports,
+            quick=quick,
+            thresholds=thr,
+            data_dir=data_dir(),
+        )
+    except Exception as exc:  # noqa: BLE001
+        from steward.infra.observability.swallowed import log_swallowed_error
+
+        log_swallowed_error("mcp.handlers.fleet_health_check", exc, context={})
+        return {"ok": False, "error": str(exc)}
+
+    failed = evaluate_fleet_fail_on(matrix, tokens, thresholds=thr)
+    return {
+        "ok": len(failed) == 0,
+        "failed": [
+            {"name": c.name, "level": c.level, "message": c.message, "details": c.details}
+            for c in failed
+        ],
+        "fail_on": sorted(tokens),
+        "matrix": fleet_health_to_dict(matrix),
+    }
+
+
+def dual_presence_sample(
+    *,
+    sample: int = 32,
+    rels: list[str] | None = None,
+    use_db: bool = True,
+) -> dict[str, Any]:
+    """Bounded dual-presence stats (ADR-0020). Read-only; never mutates FS tiers."""
+    from steward.infra.db.settings import inventory_db_path
+    from steward.infra.dual_presence import (
+        collect_stats_from_fixed_rels,
+        dual_presence_stats_to_dict,
+        sample_from_inventory,
+    )
+
+    try:
+        if rels:
+            stats = collect_stats_from_fixed_rels(rels=rels, intent="observe")
+        elif use_db:
+            db = inventory_db_path()
+            if not db.exists():
+                stats = collect_stats_from_fixed_rels(intent="observe")
+            else:
+                stats = sample_from_inventory(db, limit=max(1, int(sample)), intent="observe")
+        else:
+            stats = collect_stats_from_fixed_rels(intent="observe")
+    except Exception as exc:  # noqa: BLE001
+        from steward.infra.observability.swallowed import log_swallowed_error
+
+        log_swallowed_error("mcp.handlers.dual_presence_sample", exc, context={})
+        return {"ok": False, "error": str(exc)}
+    out = dual_presence_stats_to_dict(stats)
+    out["ok"] = True
+    return out
+
+
+def filter_plan_dual_presence(
+    *,
+    manifest_path: str,
+    out_dir: str | None = None,
+    limit: int = 0,
+    path_col: str = "source_path",
+    intent: str = "cloud_retire",
+    register_with: str | None = None,
+) -> dict[str, Any]:
+    """Filter a plan TSV by dual-presence (plan mode). Writes sidecars only."""
+    from steward.infra.db.settings import data_dir
+    from steward.infra.dual_presence import (
+        attach_filter_to_plan,
+        dual_presence_stats_to_dict,
+        filter_plan_file,
+        write_filtered_plans,
+    )
+
+    path = Path(manifest_path).expanduser()
+    if not path.is_file():
+        return {"ok": False, "error": f"manifest missing: {path}"}
+    intent_norm = (intent or "cloud_retire").strip().lower()
+    if intent_norm not in ("cloud_retire", "local_reclaim", "observe"):
+        return {"ok": False, "error": f"unknown intent: {intent}"}
+    dest = Path(out_dir).expanduser() if out_dir else (data_dir() / "runs" / "dual-presence-filter")
+    try:
+        result = filter_plan_file(
+            path,
+            limit=int(limit or 0),
+            path_col=path_col,
+            intent=intent_norm,  # type: ignore[arg-type]
+        )
+        artifacts = write_filtered_plans(result, out_dir=dest)
+        attached = None
+        if register_with:
+            attached_path = attach_filter_to_plan(register_with, artifacts)
+            attached = str(attached_path) if attached_path else None
+    except Exception as exc:  # noqa: BLE001
+        from steward.infra.observability.swallowed import log_swallowed_error
+
+        log_swallowed_error("mcp.handlers.filter_plan_dual_presence", exc, context={})
+        return {"ok": False, "error": str(exc)}
+    payload = dual_presence_stats_to_dict(result.stats)
+    payload.update(
+        {
+            "ok": True,
+            "out_dir": artifacts.out_dir,
+            "stats_path": artifacts.stats_path,
+            "bucket_paths": artifacts.bucket_paths,
+            "attached_filter_stats": attached,
+            "mutates_claims": False,
+            "mutates_tier_fs": False,
+        }
+    )
+    return payload
+
+
 def mcp_capability() -> dict[str, Any]:
     """Report current MCP mode, actor, and max_files cap (ADR-0016)."""
     from steward.infra.mcp.capability import (
@@ -888,6 +1314,12 @@ __all__ = [
     "apply_execute",
     "find_permanode_by_hash",
     "find_permanode_by_path",
+    "dual_presence_sample",
+    "estate_health",
+    "estate_health_check",
+    "fleet_health",
+    "fleet_health_check",
+    "filter_plan_dual_presence",
     "fp_status",
     "get_machine",
     "get_permanode",
@@ -896,6 +1328,8 @@ __all__ = [
     "list_machines",
     "list_policies",
     "mcp_capability",
+    "plan_backlog_list",
+    "plan_backlog_show",
     "policy_plan",
     "recent_scan_runs",
     "scan_status",

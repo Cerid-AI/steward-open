@@ -13,7 +13,9 @@ section by what you're trying to do.
 - [Continuous incremental scan (fsevents)](#continuous-incremental-scan-fsevents)
 - [MCP integration](#mcp-integration)
 - [Operator dashboard](#operator-dashboard)
+- [Estate health (`steward health`)](#estate-health-steward-health)
 - [Inventory aggregations (`steward stats`)](#inventory-aggregations-steward-stats)
+- [Inventory surface (`steward surface`)](#inventory-surface-steward-surface)
 - [Multi-machine awareness](#multi-machine-awareness)
 - [Scheduled jobs (`steward schedule`)](#scheduled-jobs-steward-schedule)
 - [Cloud-FP probe (`steward fp status`)](#cloud-fp-probe-steward-fp-status)
@@ -287,30 +289,110 @@ Sections: db file info, inventory counts (optionally rollup-cached),
 latest scan, in-flight stash, last replicate/archive, audit-chain
 integrity. Read-only (except `--refresh`, which writes rollup meta).
 
-### HTML version
+### HTML ops console (`steward dashboard`)
 
-For a browser-friendly view of the same data:
+Browser ops console for posture, exploration, and plan hygiene — **not**
+full CLI parity (see `docs/OPEN_DEVELOPMENT.md` § Dashboard product stance).
 
 ```bash
 steward dashboard --open
+# multi-GB: quick status seed (default)
+steward dashboard --quick --refresh-seconds 30
 ```
 
-Starts a tiny loopback HTTP server (default `127.0.0.1:8080`) and pops
-the dashboard in your default browser. The page auto-refreshes every
-30 seconds. Read-only — there is no write surface; mutations stay in
-CLI / MCP-write paths where the operator stays in the loop. The
-`GET /status.json` endpoint mirrors `steward status --json` for
-scripted consumers.
+Starts a loopback HTTP server (default `127.0.0.1:8080`). Soft-polls
+`/status.json` without full-page reloads. Prefer `--quick` on multi‑GB
+inventories.
 
 ```bash
 # Default loopback bind:
 steward dashboard
 
-# LAN exposure (read-only but still — be deliberate):
+# LAN bind (deliberate only):
 steward dashboard --host 0.0.0.0 --port 8080
+```
 
-# Faster polling for a dev loop:
-steward dashboard --refresh-seconds 5
+**Tabs / APIs**
+
+| UI | API / CLI |
+|---|---|
+| Overview + posture banner | `GET /api/health`, `/status.json` |
+| Scans / Audit / Policies / Schedules | `GET /api/analysis` |
+| Stats (tier/domain/volume/cross/…) | `GET /api/stats?axis=…` · `steward stats …` |
+| Surface treemap | `GET /api/surface` · `steward surface tree` |
+| Fleet matrix | `GET /api/fleet` · `steward machines health` |
+| Inspector | path/hash search actions · `steward inspect` |
+| Queues (plans + dual filter) | `GET /api/plans`, `/api/queues` · `steward plans …` |
+| File Provider + dual-presence sample | `GET /api/fp` · `steward fp status` / `dual-presence` |
+| Ops rail (28 actions) | `GET/POST /api/actions` |
+
+**Ops rail notes**
+
+- Destructive adapter actions (replicate/archive/stash) require typing
+  `EXECUTE` and loopback clients only.
+- **Apply dry-run** returns `execute_handoff` (CLI command + optional MCP
+  `plan_token`). **`apply --execute` is not a GUI action** — use CLI or
+  MCP write mode after a clean dry-run (ADR-0002 / 0016).
+- Multi‑GB stats: set **path_prefix** (e.g. `/Volumes/Backup`) before
+  unscoped pivots; unscoped can take minutes.
+
+---
+
+## Estate health (`steward health`)
+
+Unified storage-estate gate (ADR-0017). Prefer this over ad-hoc
+`status` + `fp status` for automation.
+
+```bash
+# Human-readable sections + overall banner.
+steward health show
+
+# Cheap automation default (cached rollups; audit walk skipped).
+steward health check --quick
+echo $?   # 0 = selected fail-on checks ok; 1 = fail; 2 = usage/error
+
+# JSON for cron / monitoring.
+steward health check --quick --json | jq '{overall: .report.overall, failed: .failed}'
+
+# Persist a compact snapshot under <data_dir>/health/snapshots.jsonl
+steward health check --quick --write-snapshot
+# or: STEWARD_HEALTH_SNAPSHOT=1 steward health check --quick
+```
+
+### Default `--fail-on` (local integrity only)
+
+When you omit `--fail-on`, check fails on:
+
+| Token | Meaning |
+|---|---|
+| `stale_scan` | No recent finished scan for a tracked root |
+| `broken_audit` | Audit chain not ok (needs `--full` or non-skipped chain) |
+| `stash_overdue` | Cooling-off stash past policy window + grace |
+| `rollup_stale` | Inventory count cache missing/stale |
+
+### Opt-in tokens (explicit `--fail-on` only)
+
+| Token | When to use |
+|---|---|
+| `fp_not_ready` | Cloud-propagating Dropbox/iCloud work (also `apply --require-fp-healthy`) |
+| `dual_presence_poor` | Bulk cloud retire readiness (ADR-0020) |
+| `fleet_stale_scan`, `fleet_chain_stale`, `envelope_sla`, `attached_missing` | Multi-machine envelope SLA (ADR-0021) |
+
+```bash
+# Cloud-retire gate before a large Dropbox plan:
+steward health check --quick --fail-on fp_not_ready,dual_presence_poor
+
+# Fleet / attached inventory SLA:
+steward health check --include-imports --fail-on fleet_stale_scan,envelope_sla,attached_missing
+steward machines health --check --include-imports
+```
+
+Related:
+
+```bash
+steward fp dual-presence --json
+steward plans filter-dual-presence --manifest PATH --out-dir DIR
+steward plans list
 ```
 
 ---
@@ -338,6 +420,13 @@ steward stats classifications --limit 20
 
 # Permanodes with the most current claims — the dedup-candidate list.
 steward stats duplicates --limit 20 --min-claims 3
+
+# Bytes per volume (ADR-0022).
+steward stats by-volume
+
+# Cross-tab domain × extension (ADR-0022 data matrix).
+steward stats cross domain --dim-b extension --limit 20
+steward stats cross tier --path-prefix /Volumes/Backup --limit 50
 ```
 
 JSON variants for cron / alerting:
@@ -348,7 +437,22 @@ steward stats by-tier --json | jq '.[] | select(.total_bytes > 1099511627776)'
 
 # Find the 10 biggest extensions.
 steward stats extensions --json --limit 10 | jq '.[] | .extension'
+
+# Cross-tab sample.
+steward stats cross domain --dim-b tier --json | jq '.cells[:5]'
 ```
+
+## Inventory surface (`steward surface`)
+
+Claim-based path tree (not live `du`). Prefer a prefix or tier on multi‑GB inventories.
+
+```bash
+steward surface tree --prefix /Volumes/Backup --color-by domain --limit 40
+steward surface tree --tier L2 --json | jq '.children[:10]'
+```
+
+Dashboard **Surface** tab: `steward dashboard` → Surface → overlay domain/extension/tier,
+drill directories, **Filter stats** to cross-tab the selection. API: `GET /api/surface`.
 
 ---
 
@@ -363,9 +467,13 @@ steward machines list
 
 # Full details for one machine (accepts any unique UUID prefix).
 steward machines show <machine-id-or-prefix>
+
+# Fleet health matrix (local + optional attached imports).
+steward machines health --include-imports
+steward machines health --check --fail-on envelope_sla,attached_missing
 ```
 
-On a single-machine setup this returns one row — the host's own
+On a single-machine setup `list` returns one row — the host's own
 `machine_id`, marked as current.
 
 ### Cross-machine fan-out (v0.3.5)

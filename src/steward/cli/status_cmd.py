@@ -181,6 +181,38 @@ def status_cmd(
 
     report = collect_status(db_path=target, quick=quick, refresh_rollups=refresh)
 
+    # ADR-0017: status --refresh also appends one compact health snapshot
+    # (data-dir JSONL series) so rollup refresh stays the operator cadence.
+    if refresh:
+        from pathlib import Path as _Path
+
+        from steward.infra.observability import log_swallowed_error
+
+        try:
+            from steward.infra.health.collect import collect_estate_health
+            from steward.infra.health.snapshots import write_health_snapshot
+
+            # Prefer inventory.db parent (works for STEWARD_DB_PATH test overrides).
+            try:
+                ddir = _Path(target).expanduser().resolve().parent
+            except OSError:
+                from steward.infra.db.settings import data_dir as _data_dir
+
+                ddir = _data_dir()
+            health_report = collect_estate_health(
+                db_path=target,
+                quick=True,
+                probes=True,
+                refresh_rollups=False,  # already refreshed above
+            )
+            write_health_snapshot(health_report, data_dir=ddir)
+        except Exception as exc:  # noqa: BLE001 — snapshot is best-effort telemetry
+            log_swallowed_error(
+                "status.refresh.health_snapshot",
+                exc,
+                context={"db_path": str(target)},
+            )
+
     if json_output:
         print(json.dumps(status_to_dict(report)))
         if not report.audit_chain.ok and not report.audit_chain.skipped:
