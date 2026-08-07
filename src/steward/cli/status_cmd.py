@@ -169,6 +169,12 @@ def status_cmd(
         "--refresh",
         help="Recompute inventory COUNT rollups into meta (writes).",
     ),
+    include_imports: bool = typer.Option(
+        False,
+        "--include-imports",
+        help="Fan-out inventory counts across attached imports (ADR-0013). "
+        "Collector already supported this; CLI flag for parity with machines/stats.",
+    ),
 ) -> None:
     """Print a dashboard of inventory health."""
     target = inventory_db_path()
@@ -179,7 +185,12 @@ def status_cmd(
         console.print(f"[yellow]inventory.db missing at {target} — running migrate first[/yellow]")
         migrate(target)
 
-    report = collect_status(db_path=target, quick=quick, refresh_rollups=refresh)
+    report = collect_status(
+        db_path=target,
+        quick=quick,
+        refresh_rollups=refresh,
+        include_imports=include_imports,
+    )
 
     # ADR-0017: status --refresh also appends one compact health snapshot
     # (data-dir JSONL series) so rollup refresh stays the operator cadence.

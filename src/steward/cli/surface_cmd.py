@@ -36,7 +36,7 @@ def surface_tree(
     color_by: str = typer.Option(
         "none",
         "--color-by",
-        help="Overlay: none|domain|extension|tier|source",
+        help="Overlay: none|domain|extension|tier|source|presence (presence = bounded FS probe)",
     ),
     tier: str | None = typer.Option(None, "--tier"),
     volume: str | None = typer.Option(None, "--volume"),
@@ -90,6 +90,83 @@ def surface_tree(
     if res.truncated:
         console.print("[yellow]truncated[/yellow] — narrow with --prefix/--tier/--volume or raise --limit")
     for note in res.notes:
+        console.print(f"[dim]{note}[/dim]")
+
+
+@app.command("plan-seed")
+def surface_plan_seed(
+    prefix: str = typer.Option(..., "--prefix", help="Required path prefix (no whole-inventory seed)."),
+    out: Path = typer.Option(..., "--out", help="Output plan TSV path."),
+    action: str = typer.Option(
+        "observe",
+        "--action",
+        help="observe (reclassify seed) | retire_direct (requires dual filter for cloud safety).",
+    ),
+    limit: int = typer.Option(500, "--limit", min=1, max=50000),
+    dual_only: bool = typer.Option(
+        False,
+        "--dual-only",
+        help="Keep only dual-present paths (FS probe; recommended for retire_direct).",
+    ),
+    register: bool = typer.Option(
+        False,
+        "--register",
+        help="Register seed into plan backlog (ADR-0019).",
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Export claims under --prefix to a dry plan TSV skeleton (Wave C).
+
+    Does **not** apply or execute. Review the TSV, then
+    ``steward apply --manifest … --dry-run`` (and only later ``--execute``).
+    """
+    from steward.infra.surface_plan_seed import seed_plan_from_prefix
+
+    action_norm = action.strip().lower()
+    if action_norm not in ("observe", "retire_direct"):
+        console.print("[red]--action must be observe or retire_direct[/red]")
+        raise typer.Exit(2)
+    if action_norm == "retire_direct" and not dual_only:
+        console.print(
+            "[yellow]warn[/yellow]: retire_direct without --dual-only; "
+            "prefer --dual-only for cloud-safe candidates"
+        )
+
+    target = _ensure_db_ready()
+    try:
+        result = seed_plan_from_prefix(
+            db_path=target,
+            path_prefix=prefix,
+            out=out,
+            action=action_norm,  # type: ignore[arg-type]
+            limit=limit,
+            dual_presence_only=dual_only,
+            register=register,
+        )
+    except (ValueError, OSError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(2) from exc
+
+    if json_output:
+        print(
+            json.dumps(
+                {
+                    "path": str(result.path),
+                    "plan_id": result.plan_id,
+                    "rows": result.rows,
+                    "action": result.action,
+                    "dual_filtered": result.dual_filtered,
+                    "notes": list(result.notes),
+                },
+                default=str,
+            )
+        )
+        return
+
+    console.print(f"[green]✓[/green] wrote plan seed → {result.path}")
+    console.print(f"  plan_id = {result.plan_id}")
+    console.print(f"  rows    = {result.rows:,}  action={result.action}")
+    for note in result.notes:
         console.print(f"[dim]{note}[/dim]")
 
 

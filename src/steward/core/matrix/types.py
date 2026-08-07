@@ -18,7 +18,7 @@ DimensionKey = Literal[
 
 MeasureKey = Literal["total_bytes", "claim_count", "permanode_count"]
 
-OverlayKey = Literal["none", "domain", "extension", "tier", "source"]
+OverlayKey = Literal["none", "domain", "extension", "tier", "source", "presence"]
 
 HIGH_CARDINALITY: frozenset[str] = frozenset({"extension", "classification", "machine_id"})
 

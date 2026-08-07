@@ -274,6 +274,67 @@ def filter_dual_presence_cmd(
         console.print(f"  attached to plan {register_with}: {attached}")
 
 
+@app.command("bulk-retire-prep")
+def bulk_retire_prep_cmd(
+    manifest: Path = typer.Option(..., "--manifest", help="Source plan TSV."),
+    out_dir: Path = typer.Option(..., "--out-dir", help="Write dual/store buckets + stats."),
+    store_root: Path | None = typer.Option(None, "--store-root"),
+    mount_root: Path | None = typer.Option(None, "--mount-root"),
+    limit: int = typer.Option(0, "--limit", min=0, help="Max data rows (0=all)."),
+    path_col: str = typer.Option("source_path", "--path-col"),
+    dry_run_apply: bool = typer.Option(
+        False,
+        "--dry-run-apply",
+        help="Also run apply --dry-run on plan-dual.tsv (still never executes).",
+    ),
+    require_fp_healthy: bool = typer.Option(
+        True,
+        "--require-fp-healthy/--no-require-fp-healthy",
+        help="When --dry-run-apply, gate on FP health (default on).",
+    ),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Prepare bulk cloud-retire artefacts (filter + optional dry-run; no execute).
+
+    Pipeline: dual-presence filter → plan-dual.tsv → optional apply dry-run.
+    **Execute remains operator-gated** via ``steward apply --execute`` only.
+    """
+    from steward.infra.bulk_retire_prep import (
+        bulk_retire_prep_to_dict,
+        prepare_bulk_cloud_retire,
+    )
+
+    if not manifest.is_file():
+        console.print(f"[red]manifest not found:[/red] {manifest}")
+        raise typer.Exit(2)
+    try:
+        result = prepare_bulk_cloud_retire(
+            manifest=manifest,
+            out_dir=out_dir,
+            store_root=store_root,
+            mount_root=mount_root,
+            limit=limit,
+            path_col=path_col,
+            run_apply_dry_run=dry_run_apply,
+            require_fp_healthy=require_fp_healthy,
+        )
+    except Exception as exc:
+        console.print(f"[red]prep failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    if json_out:
+        console.print_json(json.dumps(bulk_retire_prep_to_dict(result)))
+        return
+
+    console.print(f"[green]✓[/green] bulk-retire prep → {result.out_dir}")
+    console.print(f"  dual_tsv     = {result.dual_tsv or '—'}")
+    console.print(f"  stats        = {result.stats_path}")
+    console.print("  execute      = blocked (use apply --execute after review)")
+    if result.dry_run_summary:
+        color = "green" if result.dry_run_ok else "yellow"
+        console.print(f"  [{color}]dry-run apply[/{color}] = {result.dry_run_summary}")
+    for note in result.notes:
+        console.print(f"[dim]{note}[/dim]")
 
 
 __all__ = ["app"]

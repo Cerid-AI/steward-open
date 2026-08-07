@@ -152,6 +152,18 @@ OPEN_CORE_PUSH=1 scripts/sync-steward-open.sh
 2. Add to private repo secrets as **`OPEN_CORE_DEPLOY_TOKEN`**.  
 3. Confirm `Open-core publish` workflow can push.
 
+**Current state (2026-08-07):** tag/workflow publish to steward-open requires this secret. Local publish works without it:
+
+```bash
+OPEN_CORE_PUSH=1 scripts/sync-steward-open.sh
+```
+
+If GHA `Open-core publish` fails with auth errors, the operator must add `OPEN_CORE_DEPLOY_TOKEN` in GitHub repo settings — agents cannot create PATs. This is an **operator blocker**, not a code defect.
+
+### PyPI (`steward-fs`)
+
+See [`docs/open-core/PYPI.md`](open-core/PYPI.md). Export rewrites staged `pyproject.toml` `name` to **`steward-fs`**. First upload is operator-gated (PyPI token / Trusted Publishing).
+
 ---
 
 ## Sync hygiene

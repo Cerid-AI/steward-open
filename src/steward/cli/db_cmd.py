@@ -33,7 +33,7 @@ from steward.infra.sync import (
 
 app = typer.Typer(
     name="db",
-    help="Inventory DB admin: migrate, verify, integrity, backup, audit-export, export, import, imports.",
+    help="Inventory DB admin: migrate, verify, integrity, backup, audit-export, audit-archive, export, import, imports.",
     no_args_is_help=True,
 )
 
@@ -254,6 +254,116 @@ def audit_export_cmd(
         console.print(f"  after             = {result.after}")
     if result.before:
         console.print(f"  before            = {result.before}")
+
+
+@app.command("audit-archive")
+def audit_archive_cmd(
+    through_id: int | None = typer.Option(
+        None,
+        "--through-id",
+        min=1,
+        help="Last audit_log id to include in the sealed segment (contiguous from hot min id).",
+    ),
+    before: str | None = typer.Option(
+        None,
+        "--before",
+        help="Resolve through_id = max(id) with timestamp < ISO-8601 value.",
+    ),
+    verify_path: Path | None = typer.Option(
+        None,
+        "--verify",
+        help="Read-only verify of an existing segment tar.xz (ADR-0018).",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Plan only; no seal."),
+    execute: bool = typer.Option(False, "--execute", help="Seal segment into data_dir/execution-log/."),
+    hot_min_rows: int = typer.Option(
+        100,
+        "--hot-min-rows",
+        min=0,
+        help="Refuse archive that would leave fewer than this many hot rows.",
+    ),
+) -> None:
+    """Seal a contiguous audit chain segment (ADR-0018 phase A — no shrink).
+
+    Requires ``--dry-run`` or ``--execute`` (exit 2 if neither), or ``--verify``.
+    Does **not** delete hot audit rows; ``--shrink`` is a later phase.
+    """
+    from steward.infra.db.audit_archive import (
+        ArchiveDryRun,
+        ArchiveError,
+        ArchiveSealResult,
+        resolve_through_id_before,
+        seal_archive,
+        verify_segment_file,
+    )
+    from steward.infra.db.settings import data_dir
+
+    if verify_path is not None:
+        result = verify_segment_file(verify_path)
+        if result.ok:
+            console.print(
+                f"[green]✓[/green] segment ok  rows={result.rows_checked}  "
+                f"ids={result.first_id}…{result.through_id}  tip={str(result.tip_hash)[:16]}…"
+            )
+            raise typer.Exit(0)
+        console.print(f"[red]segment verify failed:[/red] {result.error}")
+        raise typer.Exit(1)
+
+    if not dry_run and not execute:
+        console.print("[red]specify --dry-run or --execute[/red] (ADR-0002)")
+        raise typer.Exit(2)
+    if dry_run and execute:
+        console.print("[red]use only one of --dry-run / --execute[/red]")
+        raise typer.Exit(2)
+
+    source = inventory_db_path()
+    if not source.exists():
+        console.print(f"[red]inventory.db missing at {source}[/red]")
+        raise typer.Exit(2)
+    migrate(source)
+
+    tid = through_id
+    if before:
+        try:
+            tid = resolve_through_id_before(db_path=source, before_iso=before)
+        except ArchiveError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(2) from exc
+        console.print(f"[dim]resolved --before {before} → through_id={tid}[/dim]")
+    if tid is None:
+        console.print("[red]provide --through-id or --before[/red]")
+        raise typer.Exit(2)
+
+    try:
+        out = seal_archive(
+            db_path=source,
+            through_id=int(tid),
+            data_dir=data_dir(),
+            dry_run=dry_run,
+            hot_min_rows=hot_min_rows,
+            actor="cli",
+        )
+    except ArchiveError as exc:
+        console.print(f"[red]archive refused:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    if isinstance(out, ArchiveDryRun):
+        console.print("[yellow]dry-run[/yellow] audit-archive plan (no seal)")
+        console.print(f"  first_id          = {out.first_id}")
+        console.print(f"  through_id        = {out.through_id}")
+        console.print(f"  row_count         = {out.row_count:,}")
+        console.print(f"  tip_hash          = {out.tip_hash[:24]}…")
+        console.print(f"  prior / genesis   = {out.genesis_prev_hash[:24]}…")
+        console.print(f"  live_chain_ok     = {out.live_chain_ok}")
+        return
+
+    assert isinstance(out, ArchiveSealResult)
+    console.print(f"[green]✓[/green] sealed segment → {out.segment_path}")
+    console.print(f"  first_id…through  = {out.first_id} … {out.through_id}")
+    console.print(f"  row_count         = {out.row_count:,}")
+    console.print(f"  segment_blake3    = {out.segment_blake3[:24]}…")
+    console.print(f"  audit_row_id      = {out.audit_row_id}")
+    console.print("[dim]hot audit_log unchanged (no --shrink in phase A)[/dim]")
 
 
 @app.command("export")

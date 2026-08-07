@@ -1,7 +1,8 @@
 # ADR 0017: Estate Health Model
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-08-05  
+**Accepted:** 2026-08-07 (shipped through v0.3.23–0.3.24)  
 **Related:** ADR-0002 (operator-in-the-loop), ADR-0003 (append-only audit),
 ADR-0006 (single inventory.db), ADR-0009/0013 (pull-don't-push / attached
 RO imports), ADR-0015 (FP path policy), ADR-0016 (MCP modes), OPEN_DEVELOPMENT

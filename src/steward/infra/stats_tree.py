@@ -163,18 +163,81 @@ def _build_sql(
     return sql, True
 
 
+def _apply_presence_overlay(
+    children: tuple[PathTreeNode, ...],
+    notes: list[str],
+    *,
+    probe_cap: int = 200,
+) -> tuple[PathTreeNode, ...]:
+    """Bounded dual-presence FS probe for Wave C color_by=presence.
+
+    Probes at most ``probe_cap`` children (never the whole inventory).
+    """
+    from steward.core.dual_presence import map_claim_to_pair
+    from steward.infra.dual_presence import (
+        default_mount_root,
+        default_store_root,
+        probe_pair,
+    )
+
+    if not children:
+        return children
+    sroot = str(default_store_root())
+    mroot = str(default_mount_root())
+    notes.append(
+        f"presence overlay: FS probe of up to {probe_cap} children "
+        f"(store={sroot}, mount={mroot}); not a full dual-presence cube"
+    )
+    out: list[PathTreeNode] = []
+    probed = 0
+    for node in children:
+        kind: str | None = None
+        if probed < probe_cap:
+            pair = map_claim_to_pair(
+                node.path, store_root=sroot, mount_root=mroot
+            )
+            probe = probe_pair(
+                pair.store_path,
+                pair.mount_path,
+                relative=pair.relative,
+            )
+            kind = str(probe.kind)
+            probed += 1
+        else:
+            kind = "unprobed"
+        out.append(
+            PathTreeNode(
+                path=node.path,
+                name=node.name,
+                is_dir=node.is_dir,
+                claim_count=node.claim_count,
+                permanode_count=node.permanode_count,
+                total_bytes=node.total_bytes,
+                overlay_value=kind,
+            )
+        )
+    if len(children) > probe_cap:
+        notes.append(
+            f"presence overlay truncated: {len(children)} children, "
+            f"probed {probe_cap} (raise scope / lower --limit)"
+        )
+    return tuple(out)
+
+
 def path_tree_depth1(*, db_path: Path, req: PathTreeRequest) -> PathTreeResult:
     """Aggregate next path segment (and direct leaves) under path_prefix."""
     req = validate_path_tree(req)
     prefix = normalize_prefix(req.path_prefix)
     where_sql, params, notes = _where_and_params(prefix, req.tier, req.volume)
     child_limit = int(req.child_limit)
+    # presence overlay is post-SQL FS probe, not a claims column.
+    sql_color = "none" if req.color_by == "presence" else req.color_by
 
     def run(source: str, con: sqlite3.Connection, *, has_source_col: bool) -> tuple[list[Any], bool]:
         sql_tmpl, uses_overlay = _build_sql(
             prefix=prefix,
             where_sql=where_sql,
-            color_by=req.color_by,
+            color_by=sql_color,
             measure=req.measure,
             child_limit=child_limit,
             has_source_col=has_source_col,
@@ -239,6 +302,7 @@ def path_tree_depth1(*, db_path: Path, req: PathTreeRequest) -> PathTreeResult:
 
     ordered = sorted(buckets.items(), key=sort_key)[:child_limit]
 
+    want_overlay = req.color_by not in ("none", "presence")
     children = tuple(
         PathTreeNode(
             path=child_path(prefix, name),
@@ -247,10 +311,12 @@ def path_tree_depth1(*, db_path: Path, req: PathTreeRequest) -> PathTreeResult:
             claim_count=agg.claim_count,
             permanode_count=agg.permanode_count,
             total_bytes=agg.total_bytes,
-            overlay_value=agg.dominant_overlay() if req.color_by != "none" else None,
+            overlay_value=agg.dominant_overlay() if want_overlay else None,
         )
         for name, agg in ordered
     )
+    if req.color_by == "presence":
+        children = _apply_presence_overlay(children, notes, probe_cap=min(200, child_limit))
 
     return PathTreeResult(
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),

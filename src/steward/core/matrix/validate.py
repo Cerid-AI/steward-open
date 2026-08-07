@@ -16,7 +16,12 @@ from steward.core.matrix.types import (
 
 _ALLOWED_FILTERS = frozenset(DIMENSION_COLUMNS) | frozenset({"path_prefix"})
 _MEASURES: frozenset[str] = frozenset({"total_bytes", "claim_count", "permanode_count"})
-_OVERLAYS: frozenset[str] = frozenset({"none", "domain", "extension", "tier", "source"})
+_OVERLAYS: frozenset[str] = frozenset(
+    {"none", "domain", "extension", "tier", "source", "presence"}
+)
+# Bounded FS probes for color_by=presence (Wave C / ADR-0022).
+DEFAULT_PRESENCE_PROBE_CAP = 200
+MAX_PRESENCE_PROBE_CAP = 200
 
 
 class MatrixValidationError(ValueError):

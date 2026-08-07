@@ -449,6 +449,13 @@ Claim-based path tree (not live `du`). Prefer a prefix or tier on multi‑GB inv
 ```bash
 steward surface tree --prefix /Volumes/Backup --color-by domain --limit 40
 steward surface tree --tier L2 --json | jq '.children[:10]'
+# Bounded dual-presence FS probe on children (Wave C; not full inventory walk)
+steward surface tree --prefix /Volumes/DropboxStorage --color-by presence --limit 50
+# Dry plan seed under a prefix (review TSV; never auto-execute)
+steward surface plan-seed --prefix /Volumes/DropboxStorage/some/dir \
+  --out /tmp/seed.tsv --action observe
+steward surface plan-seed --prefix /Volumes/DropboxStorage/some/dir \
+  --out /tmp/dual-seed.tsv --action retire_direct --dual-only --register
 ```
 
 Dashboard **Surface** tab: `steward dashboard` → Surface → overlay domain/extension/tier,
@@ -529,6 +536,39 @@ Does **not** delete rows or shrink the DB (append-only, ADR-0003).
 steward db audit-export --out /tmp/audit.jsonl
 steward db audit-export --out /tmp/old.jsonl --before 2026-01-01T00:00:00+00:00
 steward db audit-export --out /tmp/applies.jsonl --action apply_end --limit 1000
+```
+
+## Audit chain archive (`steward db audit-archive`) — ADR-0018
+
+Seal a contiguous `audit_log` id prefix into
+`${STEWARD_DATA_DIR}/execution-log/audit-segment-*.tar.xz`, verify offline,
+leave hot rows **unchanged** (no shrink in this phase).
+
+```bash
+# Plan only
+steward db audit-archive --through-id 10000 --dry-run --hot-min-rows 100
+# Seal
+steward db audit-archive --through-id 10000 --execute --hot-min-rows 100
+# Offline verify
+steward db audit-archive --verify ~/Library/Application\ Support/steward/execution-log/audit-segment-….tar.xz
+```
+
+## Bulk dual-presence retire prep (execute gated)
+
+```bash
+steward plans filter-dual-presence --manifest plan.tsv --out-dir /tmp/dp
+# Or one-shot prep (+ optional apply dry-run on dual bucket only):
+steward plans bulk-retire-prep --manifest plan.tsv --out-dir /tmp/prep --dry-run-apply
+# After operator review only:
+# steward apply --manifest /tmp/prep/plan-dual.tsv --dry-run
+# steward apply --manifest /tmp/prep/plan-dual.tsv --execute --require-fp-healthy
+```
+
+## Weekly health snapshot (launchd)
+
+```bash
+steward schedule show weekly-health-snapshot
+steward schedule install weekly-health-snapshot --execute   # Sun 04:15
 ```
 
 ---

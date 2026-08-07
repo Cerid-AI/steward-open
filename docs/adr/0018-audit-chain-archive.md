@@ -1,7 +1,8 @@
 # ADR 0018: Audit-log chain-archive and shrink
 
-**Status:** Proposed  
-**Date:** 2026-08-05
+**Status:** Accepted (phases A–B) — seal + verify shipped; shrink (phase D) open  
+**Date:** 2026-08-05  
+**Accepted (partial):** 2026-08-07 — phase B: `steward db audit-archive` seal/verify, migration `0003_audit_chain_segments`, no hot shrink
 
 ## Context
 

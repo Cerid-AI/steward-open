@@ -5,6 +5,35 @@ All notable changes to Steward will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.25] — 2026-08-07
+
+Continuous stewardship ops: estate-health polish, audit seal/verify, Wave C surface,
+bulk dual-presence prep. No daemon; no bulk execute; no audit shrink.
+
+### Added
+
+- **`steward status --include-imports`** — CLI parity with machines/stats fan-out.
+- **Launchd** `weekly-health-snapshot.plist` — Sun 04:15 `health check --quick --write-snapshot`.
+- **ADR-0018 phases A–B:** `steward db audit-archive` (seal + offline verify, no shrink);
+  migration `0003_audit_chain_segments`; segments under `data_dir/execution-log/`.
+- **Wave C:** `surface tree --color-by presence` (bounded dual-presence FS probe);
+  `steward surface plan-seed` (dry TSV skeleton; optional `--dual-only` / `--register`).
+- **`steward plans bulk-retire-prep`** — dual-presence filter + optional apply dry-run;
+  **execute always blocked** (operator must run `apply --execute` after review).
+- **PyPI prep:** export stages package name `steward-fs`; checklist `docs/open-core/PYPI.md`.
+
+### Changed
+
+- **ADR-0017** Status → Accepted.
+- **ADR-0018** Status → Accepted (phases A–B); shrink remains phase D.
+- Open-core export allowlist includes `surface_plan_seed` + `bulk_retire_prep`.
+
+### Notes
+
+- `OPEN_CORE_DEPLOY_TOKEN` remains operator-configured for GHA open-repo publish;
+  local `OPEN_CORE_PUSH=1 scripts/sync-steward-open.sh` still works without it.
+- First PyPI upload is operator-gated (token / Trusted Publishing).
+
 ## [0.3.24] — 2026-08-07
 
 Inventory **data matrix** + **graphic surface** (ADR-0022): multi-dim claim

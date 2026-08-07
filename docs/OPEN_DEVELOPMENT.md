@@ -1,7 +1,7 @@
 # Steward — Open Development Areas
 
 **Updated:** 2026-08-07  
-**Package:** `0.3.24` (ADR-0022 inventory matrix + Surface)  
+**Package:** `0.3.25` (continuous ops: audit seal, Wave C, bulk prep)  
 **Remote:** `Cerid-AI/steward`  
 **Live inventory:** `~/Library/Application Support/steward/inventory.db` (~9 GiB after store rescan)
 
@@ -33,8 +33,8 @@ This is the **authoritative** open-work doc. Supersedes older “next after v0.3
 
 | Arc | ADR | Surfaces |
 |---|---|---|
-| Estate health model | **0017** (impl; ADR may remain Proposed→Accepted follow-up) | `steward health show\|check`, `collect_estate_health`, data-dir `health/snapshots.jsonl`, MCP `estate_health` / `estate_health_check`, dashboard `GET /api/health` + `/api/health/series` + posture banner + `refresh_health`, `status --refresh` snapshot hook |
-| Audit chain-archive / shrink | **0018** design-only | Full ADR proposed; **no** seal/shrink implementation |
+| Estate health model | **0017** Accepted | `steward health show\|check`, `collect_estate_health`, data-dir `health/snapshots.jsonl`, MCP `estate_health` / `estate_health_check`, dashboard `GET /api/health` + `/api/health/series` + posture banner + `refresh_health`, `status --refresh` snapshot hook, `status --include-imports`, launchd `weekly-health-snapshot` |
+| Audit chain-archive / shrink | **0018** phases A–B | `steward db audit-archive` seal+verify (no shrink); migration `0003`; shrink = phase D still open |
 | Plan backlog + schedule reliability | **0019** | `data_dir/plans/`, `steward plans list\|show\|register\|refresh\|prune`, schedule reliability collect, dashboard Queues, MCP `plan_backlog_list` / `plan_backlog_show`, auto-register on `policy plan` |
 | Dual-presence / cloud-truth | **0020** | `core`/`infra.dual_presence`, `steward plans filter-dual-presence`, `steward fp dual-presence`, MCP sample/filter tools, `EstateHealthReport.dual_presence`, thin script wrapper |
 | Fleet health matrix | **0021** | `steward machines health [--check]`, MCP `fleet_health` / `fleet_health_check`, `GET /api/fleet`, `EstateHealthReport.fleet` + envelope SLA |
@@ -58,7 +58,7 @@ This is the **authoritative** open-work doc. Supersedes older “next after v0.3
 | 6a. Conflict folder cleanup | 🟡 **partial** — 3 empty conflicts removed; 3 ghost dirs remain (FP timeout) |
 | 6b. Rescan store | ✅ **done** run 5 — walked 360991 / hashed 316026 / claims 360991 |
 | 6c. Rescan mount | ⛔ **abandoned** run 6 — FP TimeoutError on nearly all hashes; 0 claims; store is inventory authority |
-| 7. Bulk cloud retire | 🟡 **filter ready** — `steward plans filter-dual-presence` / ADR-0020 library; bulk execute still operator-gated |
+| 7. Bulk cloud retire | 🟡 **prep ready** — `filter-dual-presence` + `plans bulk-retire-prep` (optional dry-run apply); **execute still operator-gated** |
 | 8. Optional dual-index ADR | ⬜ only if needed after rematerialized claims |
 
 **Run artifacts:** `~/Library/Application Support/steward/runs/dropbox-rectif-20260728T230940Z/RUN_STATUS.json`
@@ -90,10 +90,11 @@ Inventory rematerialization (phase 6) still recommended after any host repair; s
 - [x] **Estate health composite** (`steward health show|check`, snapshots, MCP, dashboard posture) — ADR-0017 (working tree)  
 - [x] **Fleet health matrix** (`steward machines health`, envelope SLA, MCP `fleet_health`, `GET /api/fleet`) — ADR-0021 (working tree)  
 - [x] **Dual-presence tracking** (plan filter + bounded health sample + MCP) — ADR-0020 (working tree)  
-- [ ] Audit-log **shrink** / chain-archive — ADR-0018 **Proposed** (design only; phases A–D not implemented)  
+- [x] Audit-log **chain-archive seal + verify** — ADR-0018 phases A–B (`db audit-archive`, segment tar.xz, registry)  
+- [ ] Audit-log **shrink** (phase D) — hot rebuild + optional VACUUM still open  
 - [x] Pre-ship hygiene: `DEFAULT_CHECK_FAIL_ON` = local integrity only (`stale_scan,broken_audit,stash_overdue,rollup_stale`); `dual_presence_poor` / `fp_not_ready` / fleet tokens remain in `KNOWN_FAIL_ON_TOKENS` as **opt-in** (ADR-0017/0020/0021)  
-- [ ] Promote ADR-0017 Status Proposed → Accepted when ship PR lands  
-- [ ] `steward status --include-imports` CLI flag (collector already supports)  
+- [x] Promote ADR-0017 Status → **Accepted**  
+- [x] `steward status --include-imports` CLI flag (collector parity)  
 - [ ] Always-on estate monitor — **blocked** without new daemon ADR (launchd + CLI only)
 
 ### P2 — Operator surfaces / agents
@@ -111,9 +112,10 @@ Inventory rematerialization (phase 6) still recommended after any host repair; s
 - [x] Stats by-volume aggregator (`steward stats by-volume`) — ADR-0022 / v0.3.24 (host free-space capacity still via health probes only)  
 - [x] **Inventory data matrix + graphic surface** (ADR-0022 Accepted, v0.3.24): `stats cross`, path-tree, dashboard Surface treemap + overlays — plan: [`docs/superpowers/plans/2026-08-07-inventory-surface-data-mx.md`](superpowers/plans/2026-08-07-inventory-surface-data-mx.md)  
 - [x] Dashboard Fleet tab + dual-presence sample + stats cross UI + plan detail/filter + apply execute handoff (ops console; no full CLI parity)  
-- [ ] Surface presence overlay / full dual-presence cube (bounded FS probe) — optional Wave C follow-on  
-- [ ] Surface selection → plan seed TSV (operator-gated) — optional Wave C follow-on  
-- [ ] Launchd templates invoking `health check --write-snapshot` on weekly-verify cadence (plist follow-on)  
+- [x] Surface presence overlay (bounded FS probe, `color_by=presence`) — Wave C  
+- [x] Surface selection → plan seed TSV (`steward surface plan-seed`, operator-gated) — Wave C  
+- [x] Launchd `weekly-health-snapshot` (`health check --quick --write-snapshot`, Sun 04:15)  
+- [x] Bulk dual-presence prep (`steward plans bulk-retire-prep`; execute gated)
 
 ### P3 — Open-core Phase 1 (approved direction)
 
@@ -123,8 +125,9 @@ See [`OPEN_CORE.md`](OPEN_CORE.md).
 - [x] Apache-2.0 `LICENSE` file in repo — v0.3.17  
 - [x] Public GitHub repo + extract: https://github.com/Cerid-AI/steward-open  
 - [x] Linux-first public CI workflow in open extract  
-- [ ] Re-export open-core after v0.3.23 (core.health / dual_presence / fleet must stage)  
-- [ ] PyPI publish (name TBD)  
+- [x] Re-export open-core for v0.3.24 (health/fleet/dual_presence/plans/matrix staged; steward-open main @ 91c27bd)  
+- [x] PyPI **prep** — product name `steward-fs`; export rewrites staged name; checklist [`docs/open-core/PYPI.md`](open-core/PYPI.md)  
+- [ ] PyPI **first upload** — operator token / Trusted Publishing (gated)
 
 ### P4 — Strategic (family-locked or low demand)
 
@@ -180,14 +183,15 @@ The dashboard is an **ops console + exploration + plan hygiene** surface.
 
 **Regression rule:** Do not remove ops-rail actions that already ship (replicate/archive/stash EXECUTE, dry-runs, inspect, etc.) when refining the console.
 
-## Suggested next theme (post-0.3.24)
+## Suggested next theme (post continuous-ops slice)
 
-> **Continuous stewardship ops**  
-> Audit chain-archive (ADR-0018), launchd health-snapshot cadence, open-core re-export (include `core.matrix` + health/fleet/dual-presence), dual-presence bulk execute when operator-ready. Optional Surface Wave C: presence overlay, plan seed from selection. No full GUI parity project.
+> **Operator execute + shrink**  
+> ADR-0018 phase D audit shrink when multi-GB pressure demands; dual-presence bulk **execute** only under operator review; PyPI first `steward-fs` upload; optional richer dashboard health panes. No full GUI parity project.
 
 Dropbox **rectification** remains a **side workstream**.
 
-**Post-ship:** open-core re-export; optional ADR-0017 Status → Accepted polish.
+**Post-ship (done 2026-08-07):** open-core re-export to steward-open @ 91c27bd; GHA minute policy live.  
+**Continuous-ops follow-on (this slice):** ADR-0017 Accepted; status `--include-imports`; weekly-health-snapshot plist; ADR-0018 seal+verify; Wave C presence + plan-seed; bulk-retire-prep; PyPI prep docs.
 
 ---
 

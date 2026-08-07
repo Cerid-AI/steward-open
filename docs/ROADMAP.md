@@ -191,22 +191,23 @@ providing the cooling-off.
 | **v0.3.21** | Serial scan_run commit-at-start; mount verify-hash TimeoutError → FPUnavailableError per-row. |
 | **v0.3.22** | ADR-0016 MCP modes + plan_token `apply_execute`; status/scan_status/inspect MCP tools; Cerid agent integration doc. |
 
-## Shipped (v0.3.24 — August 2026)
+## Shipped (v0.3.24–0.3.25 — August 2026)
 
 | Release | Theme | Highlights |
 |---|---|---|
 | **v0.3.24** | ADR-0022 inventory surface + data matrix | `core.matrix`, `stats by-volume` / `cross`, `surface tree`, MCP cross/path_tree, dashboard Surface treemap + overlays, plan under `docs/superpowers/plans/` |
+| **v0.3.25** | Continuous stewardship ops | status `--include-imports`; ADR-0017 Accepted; weekly-health-snapshot; ADR-0018 seal+verify; Wave C presence + plan-seed; `bulk-retire-prep`; PyPI prep |
 
-## Next (after v0.3.24)
+## Next (after v0.3.25)
 
 **Authoritative open list:** [`OPEN_DEVELOPMENT.md`](OPEN_DEVELOPMENT.md) · **Open-core:** [`OPEN_CORE.md`](OPEN_CORE.md)
 
 ### Still open
 
 - **Dropbox host repair (operator):** re-link unlinked FP domain; mount rescan; optional path rematerialization — research in [`field-notes-2026-07-28-dropbox-rectification.md`](field-notes-2026-07-28-dropbox-rectification.md). **No bulk path rewrite without that.**
-- Open-core: public CI green; PyPI name; re-sync extract after private changes.
+- Open-core: first PyPI upload of `steward-fs`; re-sync extract after private changes; `OPEN_CORE_DEPLOY_TOKEN` for GHA publish.
 - Stack bump Python 3.13 + uv (with Cerid — still 3.12).
-- CLIP near-dup; audit-log shrink/chain-archive ADR (cold export does not delete).
+- CLIP near-dup; ADR-0018 phase D audit **shrink** (seal/verify already shipped).
 
 ### Stack bump — Python 3.13 + uv
 
