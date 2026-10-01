@@ -5,6 +5,22 @@ All notable changes to Steward will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] — 2026-10-01
+
+### Fixed
+
+- Envelopes carry `manifest.json` and `checksums.txt` ahead of the payload, and `fleet pull` stops
+  reading at the manifest: an unchanged daily pull no longer decompresses the multi-GB payload
+  (110 s on the live estate). Older envelopes still read.
+
+## [0.4.1] — 2026-10-01
+
+### Added
+
+- `db export --staging-dir` (env `STEWARD_STAGING_DIR`): build the snapshot on another disk. The
+  first weekly export on a spinning drive read and wrote the same spindle at under 1 MB/s. The
+  envelope is still written beside `--out` and renamed into place.
+
 ## [0.4.0] — 2026-10-01
 
 The two-host estate release: a new configuration surface, the estate file. Without one,

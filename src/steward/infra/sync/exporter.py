@@ -169,6 +169,7 @@ def export_inventory(
     machine_id: str,
     with_embeddings: bool = False,
     overwrite: bool = False,
+    staging_dir: Path | None = None,
 ) -> ExportResult:
     """Export ``db_path`` to ``target_path`` as a tar.xz envelope.
 
@@ -189,6 +190,13 @@ def export_inventory(
         model-version coupled.
     overwrite:
         When True, an existing ``target_path`` is unlinked first.
+    staging_dir:
+        Where the snapshot is copied, stripped, vacuumed and hashed.
+        Default: beside ``target_path``. Point it at another disk when
+        the database lives on a spinning drive — the snapshot reads and
+        writes the full database, and sharing one spindle ran at under
+        1 MB/s. The envelope itself is always written beside the target
+        and renamed into place.
     """
     if not db_path.exists():
         raise ExportError(f"source inventory.db not found: {db_path}")
@@ -201,11 +209,12 @@ def export_inventory(
     excluded = EXCLUDED_TABLES_WITH_EMBEDDINGS if with_embeddings else EXCLUDED_TABLES_DEFAULT
     schema_version = _schema_version(db_path)
 
-    # Step 1: hot-backup snapshot via SQLite's online-backup API.
-    # We backup to a temp file inside the same parent as the target so
-    # the rename at the end is atomic on most filesystems.
+    # Step 1: hot-backup snapshot via SQLite's online-backup API, in the
+    # staging dir (default: beside the target).
     target_parent = target_path.parent
-    with tempfile.TemporaryDirectory(prefix="steward-export-", dir=target_parent) as td:
+    scratch_parent = staging_dir if staging_dir is not None else target_parent
+    scratch_parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="steward-export-", dir=scratch_parent) as td:
         scratch = Path(td)
         snapshot_path = scratch / "inventory.db"
 
@@ -250,20 +259,28 @@ def export_inventory(
         )
         checksums_text = checksums.to_text().encode("utf-8")
 
-        # Step 5: package envelope. Write to a sibling temp path then rename.
-        scratch_envelope = scratch / "envelope.tar.xz"
-        with tarfile.open(scratch_envelope, "w:xz") as tar:
-            tar.add(snapshot_path, arcname="inventory.db")
-            manifest_info = tarfile.TarInfo(name="manifest.json")
-            manifest_info.size = len(manifest_json)
-            tar.addfile(manifest_info, BytesIO(manifest_json))
-            checksums_info = tarfile.TarInfo(name="checksums.txt")
-            checksums_info.size = len(checksums_text)
-            tar.addfile(checksums_info, BytesIO(checksums_text))
+        # Step 5: package envelope. Written beside the target (not in the
+        # staging dir, which may be another filesystem) then renamed, so a
+        # reader never sees a partial envelope.
+        partial = target_parent / f".{target_path.name}.partial"
+        try:
+            # Manifest and checksums go first: a reader that only needs the
+            # manifest (fleet pull) stops there instead of decompressing the
+            # multi-GB payload in front of it.
+            with tarfile.open(partial, "w:xz") as tar:
+                manifest_info = tarfile.TarInfo(name="manifest.json")
+                manifest_info.size = len(manifest_json)
+                tar.addfile(manifest_info, BytesIO(manifest_json))
+                checksums_info = tarfile.TarInfo(name="checksums.txt")
+                checksums_info.size = len(checksums_text)
+                tar.addfile(checksums_info, BytesIO(checksums_text))
+                tar.add(snapshot_path, arcname="inventory.db")
 
-        if target_path.exists() and overwrite:
-            target_path.unlink()
-        scratch_envelope.replace(target_path)
+            if target_path.exists() and overwrite:
+                target_path.unlink()
+            partial.replace(target_path)
+        finally:
+            partial.unlink(missing_ok=True)
 
     envelope_size = target_path.stat().st_size
     duration = time.monotonic() - started

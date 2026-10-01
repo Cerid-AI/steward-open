@@ -155,15 +155,28 @@ def run_rsync(argv: tuple[str, ...], *, timeout: float) -> None:
 
 
 def envelope_manifest(envelope: Path) -> WireManifest:
-    """An envelope's ``manifest.json``, read without unpacking the payload."""
+    """An envelope's ``manifest.json``, read without unpacking the payload.
+
+    Members are walked in order and the walk stops at the manifest, which
+    exporters since 0.4.2 write first; ``extractfile(name)`` would index the
+    whole archive, decompressing the payload. Older envelopes still work, at
+    the cost of reading through the payload.
+    """
+    raw: bytes | None = None
     try:
-        with tarfile.open(envelope, "r:xz") as tar:
-            member = tar.extractfile("manifest.json")
-            if member is None:
-                raise PullError(f"{envelope}: manifest.json is not a regular file")
-            raw = member.read()
-    except (OSError, KeyError, tarfile.TarError) as exc:
+        with tarfile.open(envelope, "r|xz") as tar:
+            for info in tar:
+                if info.name != "manifest.json":
+                    continue
+                member = tar.extractfile(info)
+                if member is None:
+                    raise PullError(f"{envelope}: manifest.json is not a regular file")
+                raw = member.read()
+                break
+    except (OSError, tarfile.TarError) as exc:
         raise PullError(f"{envelope}: cannot read manifest.json: {exc}") from exc
+    if raw is None:
+        raise PullError(f"{envelope}: cannot read manifest.json: not in the envelope")
     try:
         return WireManifest.model_validate_json(raw)
     except ValueError as exc:

@@ -384,6 +384,13 @@ def export_cmd(
         "--overwrite",
         help="Replace an existing envelope at the target path.",
     ),
+    staging_dir: Path | None = typer.Option(
+        None,
+        "--staging-dir",
+        envvar="STEWARD_STAGING_DIR",
+        help="Where the snapshot is built before packaging. Default: beside --out. "
+        "Use another disk when the inventory lives on a spinning drive.",
+    ),
 ) -> None:
     """Export the local inventory as a portable cross-machine snapshot (ADR-0013).
 
@@ -414,6 +421,7 @@ def export_cmd(
             machine_id=machine_id,
             with_embeddings=with_embeddings,
             overwrite=overwrite,
+            staging_dir=staging_dir,
         )
     except ExportError as exc:
         console.print(f"[red]✗[/red] {exc}")
