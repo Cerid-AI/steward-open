@@ -30,7 +30,9 @@ from steward.core.health.model import (
     AttachedImportHealth,
     DualPresenceSection,
     EstateHealthReport,
+    EstateSection,
     FleetHealthSummary,
+    ForeignAttachment,
     FPSection,
     HealthCheckResult,
     HealthLevel,
@@ -43,13 +45,20 @@ from steward.core.health.model import (
     StashHealth,
 )
 from steward.core.health.thresholds import DEFAULT_THRESHOLDS, HealthThresholds
-from steward.core.tiers import classify_tier
-from steward.infra.db.admin import resolve_machine_id
+from steward.infra.db.admin import read_machine_id, resolve_machine_id
 from steward.infra.db.connect import connect
+from steward.infra.estate.active import ActiveEstate, active_estate, classify_tier, cloud_fp_layout
+from steward.infra.estate.host import check_binding
 from steward.infra.fp_status import collect_fp_status
+from steward.infra.health.attach import attached_images, foreign_attachments
+from steward.infra.health.fp_domains import collect_fp_domains
 from steward.infra.health.probes import probe_mounts
+from steward.infra.health.remote import remote_capacity_checks
+from steward.infra.health.unaccounted import collect_unaccounted
 from steward.infra.observability import log_swallowed_error
 from steward.infra.status import StatusReport, collect_status
+
+_NO_CLOUD_FP = "no cloud File Provider volume on this host in the estate"
 
 
 def collect_estate_health(
@@ -65,6 +74,8 @@ def collect_estate_health(
     include_schedule: bool = True,
     include_dual_presence: bool | None = None,
     include_fleet: bool | None = None,
+    include_fp_domains: bool = False,
+    unaccounted_root: str | None = None,
 ) -> EstateHealthReport:
     """Compose an :class:`EstateHealthReport` for the local estate.
 
@@ -79,6 +90,12 @@ def collect_estate_health(
         Call lightweight :func:`collect_fp_status`.
     include_schedule:
         Soft-import schedule templates; list installed presence only.
+    include_fp_domains:
+        Parse ``fileproviderctl dump`` for per-domain sync-loop health
+        (seconds; macOS only). Skipped check when off.
+    unaccounted_root:
+        Volume root for the df-vs-reachable walk (MINUTES-slow; weekly
+        cadence). Skipped check when None.
     include_dual_presence:
         Collect bounded dual-presence sample (ADR-0020). Default: True when
         ``probes`` is True or ``quick`` is False; False on cheap quick path
@@ -120,7 +137,14 @@ def collect_estate_health(
     if include_schedule:
         schedule = _collect_schedule_health(quick=quick)
 
-    fp = _collect_fp_section(include_fp=include_fp)
+    estate_ctx = active_estate()
+    # Only an estate host can lack one: legacy mode always has the Dropbox layout.
+    no_cloud_fp = cloud_fp_layout() is None
+
+    if include_fp and no_cloud_fp:
+        fp = FPSection(present=False, level="skipped", notes=(_NO_CLOUD_FP,))
+    else:
+        fp = _collect_fp_section(include_fp=include_fp)
 
     if include_dual_presence is None:
         # ADR-0020 cheap default: when FP is collected, include fixed-rel
@@ -128,7 +152,9 @@ def collect_estate_health(
         include_dual_presence = bool(include_fp)
 
     dual_presence: DualPresenceSection | None = None
-    if include_dual_presence:
+    if include_dual_presence and no_cloud_fp:
+        dual_presence = DualPresenceSection(present=False, level="skipped", notes=(_NO_CLOUD_FP,))
+    elif include_dual_presence:
         dual_presence = _collect_dual_presence_section(
             db_path=target,
             thr=thr,
@@ -167,6 +193,23 @@ def collect_estate_health(
             )
             mounts = ()
 
+    fp_domains = None
+    if include_fp_domains and not no_cloud_fp:
+        try:
+            fp_domains_list = collect_fp_domains(thresholds=thr)
+        except Exception as exc:  # noqa: BLE001 — best-effort health section
+            log_swallowed_error("health.collect.fp_domains", exc, context={})
+            fp_domains_list = None
+        fp_domains = tuple(fp_domains_list) if fp_domains_list is not None else None
+
+    unaccounted = None
+    if unaccounted_root:
+        unaccounted = collect_unaccounted(unaccounted_root, thresholds=thr)
+
+    estate: EstateSection | None = None
+    if estate_ctx.configured:
+        estate = _collect_estate_section(estate_ctx, db_path=target, probes=probes)
+
     checks = build_health_checks(
         inventory=inventory,
         scan_freshness=scan_freshness,
@@ -178,7 +221,11 @@ def collect_estate_health(
         rollups=rollups,
         thresholds=thr,
         dual_presence=dual_presence,
+        fp_domains=fp_domains,
+        unaccounted=unaccounted,
+        estate=estate,
     )
+    checks += remote_capacity_checks(data_dir=target.parent, thresholds=thr, now=ref)
     if fleet_checks:
         checks = list(checks) + list(fleet_checks)
     elif fleet_summary is not None:
@@ -191,6 +238,8 @@ def collect_estate_health(
         notes.append("mount probes disabled")
     if not include_fp:
         notes.append("FP section not collected")
+    if no_cloud_fp and (include_fp or include_dual_presence or include_fp_domains):
+        notes.append(f"{_NO_CLOUD_FP}: FP, dual-presence and fp-domains skipped")
 
     return EstateHealthReport(
         generated_at=generated_at,
@@ -208,8 +257,41 @@ def collect_estate_health(
         checks=tuple(checks),
         dual_presence=dual_presence,
         fleet=fleet_summary,
+        fp_domains=fp_domains,
+        unaccounted=unaccounted,
         notes=tuple(notes),
         quick=quick,
+        estate=estate,
+    )
+
+
+def _collect_estate_section(ctx: ActiveEstate, *, db_path: Path, probes: bool) -> EstateSection:
+    """Host identity, inventory.db binding and (with probes) foreign attachments."""
+    identity = ctx.identity
+    assert identity is not None  # only called with an estate file
+    if identity.host_id is None:
+        return EstateSection(host_id=None, host_reason=identity.reason)
+    host_id = identity.host_id
+    db_machine_id: str | None = None
+    try:
+        db_machine_id = read_machine_id(db_path)
+    except Exception as exc:  # noqa: BLE001 — best-effort health section
+        log_swallowed_error("health.collect.estate_binding", exc, context={"db_path": str(db_path)})
+    binding = check_binding(ctx.estate.hosts[host_id], db_machine_id)
+    foreign: tuple[ForeignAttachment, ...] | None = None
+    notes: list[str] = []
+    if probes:
+        images = attached_images()
+        if images is None:
+            notes.append("hdiutil unavailable: attached disk images not checked")
+        foreign = tuple(foreign_attachments(ctx.estate, host_id, images=images))
+    return EstateSection(
+        host_id=host_id,
+        host_reason=identity.reason,
+        binding=binding.status,
+        binding_message=binding.describe(),
+        foreign=foreign,
+        notes=tuple(notes),
     )
 
 
@@ -945,7 +1027,7 @@ def _collect_fleet_section(
 
 def estate_health_to_dict(report: EstateHealthReport) -> dict[str, Any]:
     """JSON-stable serialization for CLI --json, MCP, dashboard."""
-    return {
+    out = {
         "generated_at": report.generated_at,
         "machine_id": report.machine_id,
         "overall": report.overall,
@@ -962,8 +1044,14 @@ def estate_health_to_dict(report: EstateHealthReport) -> dict[str, Any]:
         "mounts": [asdict(m) for m in report.mounts],
         "rollups": asdict(report.rollups) if report.rollups is not None else None,
         "checks": [asdict(c) for c in report.checks],
+        "fp_domains": [asdict(d) for d in report.fp_domains] if report.fp_domains is not None else None,
+        "unaccounted": asdict(report.unaccounted) if report.unaccounted is not None else None,
         "notes": list(report.notes),
     }
+    # Absent rather than null without an estate file, so single-host output is unchanged.
+    if report.estate is not None:
+        out["estate"] = asdict(report.estate)
+    return out
 
 
 def estate_health_to_snapshot_dict(

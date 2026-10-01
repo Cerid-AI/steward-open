@@ -1,0 +1,142 @@
+# Example estate: two hosts sharing one NAS (ADR-0023).
+#
+# Deploy the SAME file to every host as ~/.config/steward/estate.yml (or point
+# $STEWARD_ESTATE_CONFIG at it). Check it, then ask each host what it sees:
+#
+#   steward estate validate docs/estate.example.yml
+#   steward estate whoami     # this host's id, role, data dir and DB binding
+#   steward estate check      # live mounts vs this file
+#
+# Without an estate file Steward runs in single-host mode, exactly as before.
+#
+# The shape: `primary` owns the NAS and pulls `client`'s published inventory over
+# ssh. Both hosts mount the NAS shares at the same paths, so who may act on a
+# path is decided per host by each volume's single `owner` and per-host `access`:
+#   rw (owner only) | ro (read, scan) | probe (capacity) | ignore (leave alone) | forbid
+version: 1
+kind: Estate
+metadata: {name: example-lab}
+
+# report: everything `enforce` would refuse still runs and is audited as
+# ownership_would_refuse (`steward estate check` sums them). Run a full cycle in
+# report and explain every row before switching to enforce.
+enforcement: report
+
+hosts:
+  primary:
+    role: primary
+    # The system hostname without `.local`, case-insensitive; or set $STEWARD_HOST.
+    hostnames: [Primary-Host]
+    # Pin after this host's first `steward db migrate`:
+    # `steward estate whoami --json` -> db_machine_id. Never copy another host's DB.
+    machine_id: null
+    data_dir: /Volumes/DataP/steward-data
+  client:
+    role: client
+    hostnames: [Client-Host]
+    # The primary refuses any pulled envelope not exported by this database.
+    machine_id: 00000000-0000-4000-8000-000000000001
+    data_dir: /Volumes/Data2/steward-data
+    # What the primary pulls (`steward fleet pull --host client`). The client exports
+    # with `steward db export --out <envelope> --overwrite`; health snapshots keep
+    # health/latest.json fresh. Nothing is ever written on the client.
+    publish:
+      ssh: client-steward-pull    # an ssh alias on the primary
+      envelope: /Volumes/Data2/steward-data/exports/estate-latest.tar.xz
+      health_dir: /Volumes/Data2/steward-data/health
+      max_age_hours: 36           # older than this, remote_capacity warns
+
+volumes:
+  # --- primary ---------------------------------------------------------------
+  primary-boot:
+    kind: boot
+    tier: boot
+    owner: primary
+    mounts:
+      primary: {path: /, prefixes: [/Users/operator /private/, /var/], access: rw, criticality: critical}
+      # The client mounts the primary's home over SMB here; it must never scan it.
+      client: {path: /Volumes/primary-home, access: ignore}
+  primary-data:
+    tier: Data
+    owner: primary
+    mounts: {primary: {path: /Volumes/DataP, access: rw, criticality: critical}}
+  primary-cache:
+    tier: Cache
+    owner: primary
+    plan: none                    # observed and probed, never planned
+    mounts: {primary: {path: /Volumes/DataCache, access: rw}}
+  # A disk image on the NAS, attached on the primary only: the client must never
+  # attach it (forbid -> foreign_attach health failure if it does).
+  primary-photos:
+    kind: disk-image
+    tier: Photos
+    owner: primary
+    plan: none
+    image: /Volumes/nas-share/Photos.sparsebundle
+    exclusive_attach: primary
+    mounts:
+      primary: {path: /Volumes/Photos, access: rw, criticality: critical}
+      client: {path: /Volumes/Photos, access: forbid}
+  # Mounted by macOS, deliberately unmanaged: not probed, not reported as unexpected.
+  primary-recovery:
+    tier: Recovery
+    owner: primary
+    plan: none
+    scan: false
+    mounts: {primary: {path: /Volumes/Recovery, access: ignore}}
+
+  # --- client ----------------------------------------------------------------
+  client-boot:
+    kind: boot
+    tier: boot
+    owner: client
+    mounts: {client: {path: /, prefixes: [/Users/operator /private/, /var/], access: rw, criticality: critical}}
+  client-data1:
+    tier: L1
+    owner: client
+    mounts: {client: {path: /Volumes/Data1, access: rw}}
+  client-data2:
+    tier: L2
+    owner: client
+    mounts: {client: {path: /Volumes/Data2, access: rw, criticality: critical}}
+  client-dropbox:
+    kind: cloud-fp
+    tier: DropboxStorage
+    owner: client
+    cloud_fp:
+      provider: dropbox
+      store_root: /Volumes/DataCloud/.CloudStorage/Data/Dropbox
+      mount_root: ~/Library/CloudStorage/Dropbox
+      cooling_off: dropbox-cloud-trash-account-specific
+    mounts:
+      client:
+        path: /Volumes/DataCloud
+        match_regex: '/Library/CloudStorage/Dropbox(?:-[^/]+)?(?:/|$)'
+        access: rw
+        criticality: critical
+
+  # --- NAS: owned by the primary, mounted at the same paths on both hosts ------
+  nas-share:
+    kind: nas
+    tier: NAS
+    owner: primary
+    scan_excludes: ["*.sparsebundle/"]
+    mounts:
+      primary: {path: /Volumes/nas-share, access: rw}
+      client: {path: /Volumes/nas-share, access: ro, scan: false}
+  # A Time Machine destination: read as a promote source, never planned onto.
+  # Each host may write replicas only under <root>/<its host id>.
+  nas-backup:
+    kind: nas
+    tier: Backup
+    owner: primary
+    time_machine_target: true
+    scan: false
+    plan: source-only
+    mounts:
+      primary: {path: /Volumes/nas-backup, access: ro}
+      client: {path: /Volumes/nas-backup, access: ro}
+    replica_grants:
+      - {host: primary, prefix: _steward-mirror/primary}
+      - {host: primary, prefix: _steward-archive/primary}
+      - {host: client, prefix: _steward-mirror/client}

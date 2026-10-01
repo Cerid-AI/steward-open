@@ -59,6 +59,8 @@ def write_manifest(path: Path, manifest: Manifest) -> None:
     if h.phase_name is not None:
         lines.append(f"# phase: {h.phase_name}")
     lines.append(f"# manifest_run_id: {h.manifest_run_id}")
+    if h.ownership is not None:
+        lines.append(f"# ownership: {h.ownership}")
     text = "\n".join(lines) + "\n"
 
     with path.open("w", encoding="utf-8", newline="") as f:
@@ -137,6 +139,7 @@ def read_manifest(path: Path) -> Manifest:
         policy_name=meta.get("policy", "unknown"),
         phase_name=meta.get("phase"),
         manifest_run_id=meta.get("manifest_run_id", "unknown"),
+        ownership=meta.get("ownership"),
     )
     return Manifest(header=header, rows=tuple(rows))
 

@@ -548,6 +548,11 @@ def policy_plan(
         "blocked_reasons": list(summary.blocked_reasons or ()),
         "registered_path": summary.registered_path,
         "action_counts": dict(summary.action_counts or {}),
+        **(
+            {"ownership_dropped": summary.ownership_dropped, "ownership": summary.ownership_note}
+            if summary.ownership_note is not None
+            else {}
+        ),
     }
 
 
@@ -655,7 +660,7 @@ def apply_dry_run(
         return {
             "ok": False,
             "refused": True,
-            "rejected": list(exc.result.rejected_imported_claims),
+            "rejected": exc.rejected,
             "error": str(exc),
         }
     out: dict[str, Any] = {
@@ -820,7 +825,7 @@ def apply_execute(
         return {
             "ok": False,
             "refused": True,
-            "rejected": list(exc.result.rejected_imported_claims),
+            "rejected": exc.rejected,
             "error": str(exc),
             "plan_token_retained": True,
         }

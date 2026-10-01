@@ -252,6 +252,22 @@ def show_cmd(
         "--probes/--no-probes",
         help="Live mount free/total + latency probes (default: on).",
     ),
+    fp_domains: bool = typer.Option(
+        False,
+        "--fp-domains/--no-fp-domains",
+        help=(
+            "Parse fileproviderctl for per-domain sync-loop health "
+            "(seconds; macOS only). The check reports `skipped` when off."
+        ),
+    ),
+    unaccounted: str | None = typer.Option(
+        None,
+        "--unaccounted",
+        help=(
+            "Volume root for the df-vs-reachable gap walk (SLOW — minutes; "
+            "weekly cadence). e.g. --unaccounted /System/Volumes/Data"
+        ),
+    ),
     write_snapshot: bool = typer.Option(
         False,
         "--write-snapshot/--no-write-snapshot",
@@ -282,6 +298,8 @@ def show_cmd(
             quick=use_quick,
             include_imports=include_imports,
             probes=probes,
+            include_fp_domains=fp_domains,
+            unaccounted_root=unaccounted,
             thresholds=thr,
         )
     except Exception as exc:  # noqa: BLE001 — surface as exit 2
@@ -328,6 +346,22 @@ def check_cmd(
         False,
         "--probes/--no-probes",
         help="Live mount probes (default: off for check).",
+    ),
+    fp_domains: bool = typer.Option(
+        False,
+        "--fp-domains/--no-fp-domains",
+        help=(
+            "Parse fileproviderctl for per-domain sync-loop health "
+            "(seconds; macOS only). The check reports `skipped` when off."
+        ),
+    ),
+    unaccounted: str | None = typer.Option(
+        None,
+        "--unaccounted",
+        help=(
+            "Volume root for the df-vs-reachable gap walk (SLOW — minutes; "
+            "weekly cadence). e.g. --unaccounted /System/Volumes/Data"
+        ),
     ),
     fail_on: list[str] | None = typer.Option(
         None,
@@ -383,6 +417,8 @@ def check_cmd(
             quick=use_quick,
             include_imports=include_imports,
             probes=probes,
+            include_fp_domains=fp_domains,
+            unaccounted_root=unaccounted,
             thresholds=thr,
         )
     except Exception as exc:  # noqa: BLE001

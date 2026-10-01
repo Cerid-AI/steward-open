@@ -13,6 +13,7 @@ import logging
 import sqlite3
 from pathlib import Path
 
+from steward.infra.db.settings import assert_data_dir_mounted
 from steward.infra.observability import log_swallowed_error
 
 logger = logging.getLogger("steward.infra.db")
@@ -45,6 +46,7 @@ def connect(
     """
     target = Path(path)
     if not read_only:
+        assert_data_dir_mounted(target.parent)
         target.parent.mkdir(parents=True, exist_ok=True)
     uri = f"file:{target}{'?mode=ro' if read_only else ''}"
     # timeout: wait for locks (parallel scan workers + apply). Default

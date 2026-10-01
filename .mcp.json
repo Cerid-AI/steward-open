@@ -2,7 +2,11 @@
   "mcpServers": {
     "steward": {
       "command": "steward",
-      "args": ["mcp", "--transport", "stdio"],
+      "args": [
+        "mcp",
+        "--transport",
+        "stdio"
+      ],
       "env": {
         "STEWARD_MCP_MODE": "plan",
         "STEWARD_MCP_ACTOR": "steward-mcp:ide"

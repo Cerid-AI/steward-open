@@ -8,6 +8,7 @@ Layout::
       health/
         snapshots.jsonl    # one compact EstateHealthReport dict per line
         LATEST             # ISO-8601 id of last written snapshot
+        latest.json        # the last compact report, whole (published to the estate primary)
 
 Telemetry only — not forensic claim truth. Writers avoid inventory.db
 write locks. Optional meta key ``health_snapshot_latest`` mirrors the ISO
@@ -44,6 +45,7 @@ _MAX_AGE_DAYS = 90
 META_KEY_LATEST = "health_snapshot_latest"
 SNAPSHOTS_FILENAME = "snapshots.jsonl"
 LATEST_FILENAME = "LATEST"
+LATEST_REPORT_FILENAME = "latest.json"
 
 
 def health_dir(data_dir: Path) -> Path:
@@ -56,6 +58,10 @@ def snapshots_path(data_dir: Path) -> Path:
 
 def latest_pointer_path(data_dir: Path) -> Path:
     return health_dir(data_dir) / LATEST_FILENAME
+
+
+def latest_report_path(data_dir: Path) -> Path:
+    return health_dir(data_dir) / LATEST_REPORT_FILENAME
 
 
 def read_latest_pointer(*, data_dir: Path) -> str | None:
@@ -85,7 +91,7 @@ def write_health_snapshot(
     max_lines: int = _MAX_LINES,
     max_age_days: int = _MAX_AGE_DAYS,
 ) -> Path:
-    """Append one compact snapshot line; update LATEST; prune retention.
+    """Append one compact snapshot line; update LATEST and latest.json; prune retention.
 
     Returns the snapshots.jsonl path. Prune failures are swallowed
     (log_swallowed_error) and leave the series intact. Does not mutate
@@ -119,6 +125,19 @@ def write_health_snapshot(
             "health.snapshots.write_latest",
             exc,
             context={"path": str(latest)},
+        )
+
+    report_path = latest_report_path(data_dir)
+    try:
+        # Replace, never rewrite in place: the primary may rsync this file at any moment.
+        tmp = report_path.with_name(report_path.name + ".tmp")
+        tmp.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(report_path)
+    except OSError as exc:
+        log_swallowed_error(
+            "health.snapshots.write_latest_report",
+            exc,
+            context={"path": str(report_path)},
         )
 
     try:
@@ -274,10 +293,12 @@ def _prune_series(
 
 __all__ = [
     "LATEST_FILENAME",
+    "LATEST_REPORT_FILENAME",
     "META_KEY_LATEST",
     "SNAPSHOTS_FILENAME",
     "health_dir",
     "latest_pointer_path",
+    "latest_report_path",
     "read_health_series",
     "read_latest_pointer",
     "snapshots_path",

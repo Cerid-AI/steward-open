@@ -24,6 +24,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from steward.core.errors import EstateError
 from steward.infra.archive.orchestrate import (
     resolve_policy_path,
     run_init,
@@ -88,7 +89,7 @@ def snapshot_cmd(
             machine_id=machine_id,
             dry_run=dry_run,
         )
-    except ResticNotInstalledError as exc:
+    except (ResticNotInstalledError, EstateError) as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(2) from exc
 
@@ -198,7 +199,7 @@ def init_cmd(
             policy_path=policy_path,
             machine_id=machine_id,
         )
-    except ResticNotInstalledError as exc:
+    except (ResticNotInstalledError, EstateError) as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(2) from exc
 

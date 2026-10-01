@@ -232,7 +232,7 @@ def _render_fleet_matrix(matrix: object) -> None:
     table.add_column("envelope")
     table.add_column("level")
     for r in matrix.rows:
-        mid = r.machine_id[:8] + "…" if len(r.machine_id) > 12 else r.machine_id
+        mid = r.host_id or (r.machine_id[:8] + "…" if len(r.machine_id) > 12 else r.machine_id)
         src = "[green]local[/green]" if r.source == "local" else "[yellow]attached[/yellow]"
         last_scan = _format_age_hours(r.scan_age_hours)
         table.add_row(

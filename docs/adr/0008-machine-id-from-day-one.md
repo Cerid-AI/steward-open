@@ -44,3 +44,15 @@ Other forward-compatible columns landed in the same vein:
   during the migration window.
 - **Hostname-as-id** — easy to get wrong (DHCP renames, /etc/hostname
   edits). uuid4 + first-run seeding is stable.
+
+## Amendment
+
+**Amended 2026-10-01 — a second host (ADR-0023).** The single-machine
+assumption above now holds only without an estate file. With one, each
+host's `machine_id` is also pinned in the estate and checked against the
+inventory's `meta.machine_id`: a mismatch refuses every mutation, and an
+envelope pulled from a client must carry the id pinned for that client.
+Hostnames only resolve which estate host this is; they never identify
+claims, so the rejection of hostname-as-id stands. A new host starts from
+its own `steward db migrate`; copying another host's database would carry
+that host's id.

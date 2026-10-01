@@ -15,16 +15,22 @@ the dry-run gate.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 
-from steward.core.policy.schema import ReplicationPolicy
-from steward.infra.db import repo_audit
+from steward.core.policy.schema import ReplicationPolicy, ReplicationSource
+from steward.infra.db import repo_audit, repo_meta
+from steward.infra.db.backup import BackupError, backup_inventory_db
+from steward.infra.estate.guard import Check, load_guard
 from steward.infra.replicate.rclone import (
     RcloneRunResult,
     run_rclone,
 )
+
+_STAGING_DIRNAME = ".replicate-staging"
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +101,36 @@ def _summarise_for_audit(
     }
 
 
+def _snapshot_for_rclone(src: ReplicationSource, *, machine_id: str) -> Path:
+    """Write a quick-checked online-backup copy of ``src.source`` for rclone."""
+    live = Path(src.source)
+    staging = Path(src.staging_dir).expanduser() if src.staging_dir else live.parent / _STAGING_DIRNAME
+    staging.mkdir(parents=bool(src.staging_dir), exist_ok=True)
+    staged = staging / live.name
+    backup_inventory_db(source_path=live, target_path=staged, machine_id=machine_id, overwrite=True)
+    check = sqlite3.connect(str(staged))
+    try:
+        verdict = check.execute("PRAGMA quick_check").fetchone()[0]
+    finally:
+        check.close()
+    if verdict != "ok":
+        staged.unlink(missing_ok=True)
+        raise BackupError(f"snapshot of {live} failed quick_check: {verdict}")
+    return staged
+
+
+def _not_run(reason: str) -> RcloneRunResult:
+    return RcloneRunResult(
+        returncode=1,
+        duration_seconds=0.0,
+        stdout="",
+        stderr_tail=reason,
+        stats={},
+        command=(),
+        timed_out=False,
+    )
+
+
 def run_replication(
     *,
     con: sqlite3.Connection,
@@ -105,15 +141,31 @@ def run_replication(
 ) -> ReplicationReport:
     """Execute a :class:`ReplicationPolicy` end-to-end.
 
-    Caller owns the transaction. The runner appends a
-    ``replicate_start`` row, iterates sources (one rclone subprocess
-    each), appends a ``replicate_source`` row per source with the
-    compact result payload, then appends ``replicate_end`` with the
-    aggregate counts.
+    The runner appends a ``replicate_start`` row, iterates sources (one
+    rclone subprocess each), appends a ``replicate_source`` row per
+    source with the compact result payload, then appends
+    ``replicate_end`` with the aggregate counts. Each row is committed
+    as it is written: a run can take hours, and an open write
+    transaction would block every other writer, including the
+    snapshot's own audit row, for that long.
+
+    ``kind: sqlite-snapshot`` sources ship a quick-checked online-backup
+    copy staged in ``.replicate-staging/`` beside the database; the copy
+    is removed afterwards. A snapshot failure counts as a failed source.
+
+    With an estate, every destination must sit inside one of this host's
+    replica grants. In ``enforce`` mode a refused source is not run and
+    counts as a failed source (``replicate_refused_namespace`` audit row,
+    ``ownership_refused`` in its ``replicate_source`` row); in ``report``
+    mode it runs after an ``ownership_would_refuse`` row. An unknown host
+    or a foreign inventory.db refuses the whole run before any row.
 
     ``dry_run`` propagates to rclone via ``--dry-run`` — no bytes move
-    on either side.
+    on either side, and no snapshot is taken.
     """
+    guard = load_guard(db_machine_id=repo_meta.get(con, "machine_id"))
+    if guard is not None:
+        guard.require_identity()
     started = datetime.now(timezone.utc).isoformat(timespec="seconds")
     repo_audit.append(
         con,
@@ -127,6 +179,7 @@ def run_replication(
             "started_at": started,
         },
     )
+    con.commit()
 
     report = ReplicationReport(policy_name=policy_name, started_at=started)
 
@@ -145,11 +198,49 @@ def run_replication(
             )
             continue
 
-        result = run_rclone(
-            defaults=policy.defaults,
-            source=src,
-            dry_run=dry_run,
-        )
+        snapshot_error: str | None = None
+        ownership_refused: str | None = None
+        staged: Path | None = None
+        if guard is not None:
+            refusals = guard.refusals(
+                [Check("replicate-destination", os.path.expanduser(src.destination), "destination", src.name)]
+            )
+            if refusals:
+                guard.audit(
+                    con,
+                    refusals,
+                    refusal_action="replicate_refused_namespace",
+                    machine_id=machine_id,
+                    actor="steward-replicate",
+                    context={"policy_name": policy_name, "source_name": src.name, "dry_run": dry_run},
+                )
+                con.commit()
+                if guard.enforcing:
+                    ownership_refused = refusals[0].decision.reason
+        try:
+            if ownership_refused is not None:
+                result = _not_run(f"refused by volume ownership: {ownership_refused}")
+            elif src.kind == "sqlite-snapshot" and not dry_run:
+                try:
+                    staged = _snapshot_for_rclone(src, machine_id=machine_id)
+                except (BackupError, sqlite3.Error, OSError) as exc:
+                    snapshot_error = str(exc)
+                    result = _not_run(f"snapshot failed: {exc}")
+                else:
+                    result = run_rclone(
+                        defaults=policy.defaults,
+                        source=src.model_copy(update={"source": str(staged)}),
+                        dry_run=dry_run,
+                    )
+            else:
+                result = run_rclone(
+                    defaults=policy.defaults,
+                    source=src,
+                    dry_run=dry_run,
+                )
+        finally:
+            if staged is not None:
+                staged.unlink(missing_ok=True)
         sr = SourceReport(
             name=src.name,
             source=src.source,
@@ -172,10 +263,14 @@ def run_replication(
                 "source": src.source,
                 "destination": src.destination,
                 "mode": src.mode,
+                "kind": src.kind,
                 "dry_run": dry_run,
                 **_summarise_for_audit(result),
+                **({"snapshot_error": snapshot_error} if snapshot_error else {}),
+                **({"ownership_refused": ownership_refused} if ownership_refused else {}),
             },
         )
+        con.commit()
 
     finished = datetime.now(timezone.utc).isoformat(timespec="seconds")
     report.finished_at = finished
@@ -195,6 +290,7 @@ def run_replication(
             "finished_at": finished,
         },
     )
+    con.commit()
     return report
 
 

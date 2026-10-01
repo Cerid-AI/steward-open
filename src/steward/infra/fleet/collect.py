@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import socket
 import sqlite3
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -36,6 +36,7 @@ from steward.core.fleet.types import (
 from steward.core.health.model import HealthLevel
 from steward.infra.db.admin import resolve_machine_id
 from steward.infra.db.connect import connect
+from steward.infra.estate.rollup import host_labels
 from steward.infra.observability import log_swallowed_error
 
 
@@ -103,6 +104,10 @@ def collect_fleet_health(
                 now=ref,
             )
         )
+
+    labels = host_labels(local_machine_id)
+    if labels:
+        rows = [replace(r, host_id=labels.get(r.machine_id)) for r in rows]
 
     # Ensure local is first
     rows.sort(key=lambda r: (0 if r.source == "local" else 1, r.machine_id))

@@ -261,6 +261,89 @@ MountProbe
 - Free-space **warn** threshold default: &lt; 5% free or &lt; 10 GiB free
   (configurable later; not a `--fail-on` token in v1 unless we add
   `mount_low` — deferred).
+
+  **Amended 2026-08-16 — free space gains a `fail` band.** As written above,
+  `free_space_level` could return no worse than `warn`, so a volume in the act
+  of taking the machine down graded identically to one merely getting full. On
+  2026-08-13 the Mac Pro boot volume reached 100%: a CI runner crashed writing
+  its own log, all three self-hosted runners went offline, and Docker Desktop
+  reset its VM. Three days after that cleanup the same volume was back under
+  21 GiB free, burning ~20 GB/day. Revised defaults:
+
+  | Band | Absolute | Ratio |
+  |---|---|---|
+  | warn | < 25 GiB free | < 8% free |
+  | fail | < 10 GiB free | < 3% free |
+
+  The two axes do different jobs and must not be conflated: the absolute floor
+  means "too little space for anything to work, whatever the disk size" and so
+  stays small — raising it to volume-sized numbers makes every small volume
+  permanently red. The ratio floor does the proportional work and is what
+  catches a large disk filling. They combine with OR, and each `fail` floor
+  must stay strictly tighter than its `warn` counterpart (asserted by
+  `test_free_space_fail_floors_are_tighter_than_warn`).
+
+  **`mount_low` is now a real `--fail-on` token, and is default-on.** The
+  deferral above was the load-bearing half of the gap: even with a fail band
+  and `--probes`, capacity could not fail the gate, so `steward health check`
+  exited 0 with the boot volume grading `fail`. `mount_low` and its sibling
+  `mount_missing` are in `KNOWN_FAIL_ON_TOKENS`, and `mount_low` is in
+  `DEFAULT_CHECK_FAIL_ON`.
+
+  Default-on is safe here in a way the FP and fleet tokens are not: every host
+  has disks, so there is no host shape it can false-red on, and because
+  `health check` defaults to `--no-probes` the check reports **`skipped`**
+  until capacity is actually measured. "Not measured" must never be
+  indistinguishable from "every volume is fine" — that property is what makes
+  the default admissible, and it is asserted by
+  `test_no_probes_is_skipped_not_ok`.
+
+  `mount_missing` was also corrected in the same change. It collected every
+  probe at level `fail`, which was correct only while `fail` could mean
+  nothing but "critical mount absent". Once free space gained a fail band, a
+  merely FULL disk landed there and was reported as "critical mount(s)
+  missing" — a present, mounted, working volume described as gone. Presence,
+  not level, is now the discriminator.
+
+  **Second amendment, same day — two sibling checks, born of the same
+  incident's second act.** Even with capacity gating, the boot volume's
+  filling was invisible for 46 days because the consumer wrote into a
+  DataVault: kernel-protected storage that no `du` may enter and whose
+  contents are therefore absent from every parent total. The writer was a
+  File Provider domain in a sync-error retry loop (`fileproviderctl` showed
+  `error generation: 628`), staging transfer data through nsurlsessiond on
+  every failed cycle.
+
+  - **`fp_sync_stuck`** (collector: `--fp-domains`) grades each File
+    Provider domain by fileproviderd's own failed-cycle counter: warn ≥ 10,
+    fail ≥ 100. Healthy domains sit at 0–2.
+  - **`unaccounted_space`** (collector: `--unaccounted <volume-root>`)
+    measures the statfs-used vs `du -x`-reachable gap. Absolute floors
+    (warn 64 GiB / fail 160 GiB): the legitimate gap — DataVaults plus
+    filesystem metadata — is a roughly fixed cost, not proportional to disk
+    size. Deliberately minutes-slow and therefore weekly-scheduled, not part
+    of the interactive gate.
+
+  Both are in `KNOWN_FAIL_ON_TOKENS` **and** `DEFAULT_CHECK_FAIL_ON`, safe
+  by the same rule as `mount_low`: when the collector did not run the check
+  reports `skipped`, never `ok` — and an empty parse of a dump that DID run
+  reports `unknown`, because a parser that silently stopped matching a
+  drifted format must not read as a healthy estate. Full narrative:
+  `docs/field-notes-2026-08-16-boot-volume-hidden-consumption.md`.
+
+  Two further corrections in the same change, both cases of a probe reporting
+  health about a question it never asked:
+
+  - **An impossible reading is `unknown`, never `ok`.** `shutil.disk_usage`
+    returns more free bytes than total on the NFS tiers here
+    (`/Volumes/Backup`, `/Volumes/Level_3a` compute to -2388% used). The huge
+    bogus `free` cleared both floors, so two network tiers reported `ok` while
+    nothing about them was being measured.
+  - **Symlinked and read-only roots are `skipped`, not graded.**
+    `/Volumes/Level 00` is a symlink to `/`, which scored the boot volume a
+    second time under another name; a mounted read-only DMG sits permanently
+    at 0 bytes free and warned forever. Neither is actionable from this host,
+    and both train operators to ignore the report.
 - Sample latency: wall time of one `Path.exists()` / `stat`; surface as
   warn if &gt; 2000 ms (FP congestion signal; aligns with field notes).
 
@@ -451,3 +534,15 @@ Full ADR-0018 should be written before any execute path lands.
 - **Proposed** — design for v0.4 Estate Health foundation.
 - **Accepted** — when implementation PR lands with tests green.
 - Supersedes nothing; extends operator surfaces only.
+
+## Amendment
+
+**Amended 2026-10-01 — estate-aware health (ADR-0023).** With an estate file,
+mount probes cover this host's declared mounts (skipping `ignore`, `forbid`
+and `probe_skip`) and grade a missing one by its `criticality`, replacing
+the hardcoded critical-FP-tier rule; cloud File Provider sections are
+`skipped` on a host without a `cloud-fp` volume. Two default `--fail-on`
+checks appear only with an estate: `foreign_attach` and `estate_binding`.
+On the primary, the opt-in `remote_capacity` grades each client's pulled
+`health/latest.json`; every snapshot now also writes that file. Without an
+estate file the report is as described above.

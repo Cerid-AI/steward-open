@@ -25,6 +25,25 @@ class PolicyError(StewardError):
     """A policy YAML is invalid, ambiguous, or references unknown identifiers."""
 
 
+class EstateError(StewardError):
+    """An estate file is missing or invalid, or a lookup named a host the estate does not define."""
+
+
+class UnknownHostError(EstateError):
+    """An estate exists but none of its hosts is this machine; mutating commands refuse."""
+
+
+class BindingMismatchError(EstateError):
+    """The open inventory.db belongs to another machine than the estate pins for this host."""
+
+
+class DataDirUnavailableError(StewardError):
+    """The data dir is on a ``/Volumes/<name>`` volume that is not mounted.
+
+    Creating it anyway would put a fresh inventory.db, with a new machine_id,
+    on the boot disk under the empty mount point."""
+
+
 class ManifestError(StewardError):
     """A plan manifest is malformed, mismatched, or stale."""
 

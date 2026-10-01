@@ -35,7 +35,8 @@ sqlite-vec, single file):
 
 - **macOS:** `~/Library/Application Support/steward/inventory.db`
 - **Linux:** `~/.local/share/steward/inventory.db`
-- Override: `STEWARD_DATA_DIR` or `STEWARD_DB_PATH`
+- Override: `STEWARD_DB_PATH` > `STEWARD_DATA_DIR` > this host's `data_dir` in the
+  estate file (see [Multi-machine awareness](#multi-machine-awareness))
 
 If you're coming from sprawl-audit, pull the legacy hash database in:
 
@@ -483,6 +484,75 @@ steward machines health --check --fail-on envelope_sla,attached_missing
 On a single-machine setup `list` returns one row — the host's own
 `machine_id`, marked as current.
 
+### Estate file (`steward estate`, v0.3.30)
+
+On more than one host, an estate file declares the hosts, the volumes
+each one mounts, and which host owns each volume. Steward reads
+`$STEWARD_ESTATE_CONFIG`, else `~/.config/steward/estate.yml`; without
+one it stays in single-host mode. This host is `$STEWARD_HOST`, else
+the host whose `hostnames` match the system hostname (case-insensitive,
+`.local` dropped). [`docs/estate.example.yml`](estate.example.yml) is an
+annotated two-host example; the design is ADR-0023.
+
+```bash
+steward estate validate ~/.config/steward/estate.yml
+steward estate show            # hosts + volumes as this host sees them
+steward estate whoami --json   # host id, role, data dir, inventory.db binding
+steward estate check           # exit 1: missing critical / forbidden mount,
+                               # unmounted data dir, or DB bound to another machine;
+                               # also counts what enforce would have refused
+```
+
+A host's `data_dir` becomes the default data dir on that host. If a
+data dir under `/Volumes/<name>` is not mounted, Steward refuses to
+create or migrate the database there instead of starting a fresh one
+on the boot disk. When the estate pins a host's `machine_id`, an
+inventory.db with a different one is reported as a binding mismatch.
+
+**Volume ownership (v0.3.32).** With an estate, `apply` (CLI, MCP,
+dashboard), `stash finalize|restore`, `scan`, `policy plan`, `replicate`
+and `archive` check every path against it: only a volume's owner may
+stash, retire, promote onto or finalize on it; a scan root must be
+scannable on this host; replica and archive destinations must sit inside
+this host's `replica_grants`. The estate's `enforcement` decides what a
+refusal does:
+
+- `report` (default) — the action proceeds and an `ownership_would_refuse`
+  audit row records what `enforce` would have blocked (`estate check`
+  sums them).
+- `enforce` — the action is refused and audited (`apply_rejected_foreign_volume`,
+  `stash_refused_foreign_volume`, `scan_refused_foreign_volume`,
+  `replicate_refused_namespace`, `archive_refused_namespace`); `policy plan`
+  drops the rows and notes the count in the manifest's `# ownership:` line.
+
+In either mode an unknown host, or an inventory.db bound to another
+machine, refuses these commands outright. Without an estate file none
+of this runs.
+
+### Pulling a client host (`steward fleet`, v0.3.33)
+
+A client host that declares a `publish` block (`ssh`, `envelope`,
+`health_dir`, `max_age_hours`) exports its inventory and keeps a health
+sidecar there (`steward db export --out <envelope> --overwrite`; every
+health snapshot also writes `health/latest.json`). The estate's primary pulls
+it — the client never pushes, and the pull never writes on the client:
+
+```bash
+steward fleet pull --host mac-pro              # dry-run: prints the rsync commands
+steward fleet pull --host mac-pro --execute    # rsync into <data_dir>/inbox/mac-pro/, then import
+steward fleet status                           # per host: last pull, import age, remote capacity
+```
+
+`--execute` refuses unless this host is the primary and the envelope's
+exporter `machine_id` is the one the estate pins for that host (the
+refusal is audited as `fleet_pull_refused`); a successful pull is
+audited as `fleet_pull`. On the primary, `steward health` grades each
+pulled sidecar as `remote_capacity` (gate it with
+`--fail-on remote_capacity`) — a sidecar older than `max_age_hours` is
+a warning. With `--include-imports`, `steward stats`
+counts only the owning host's claims for a volume, so a NAS both hosts
+scanned is not counted twice; the fleet matrix labels rows by host id.
+
 ### Cross-machine fan-out (v0.3.5)
 
 After importing inventories from other machines via
@@ -843,22 +913,39 @@ steward schedule status nightly-archive
 steward schedule uninstall nightly-archive --execute
 ```
 
-Three templates ship:
+Templates that ship:
 
 | Template | Schedule | Command |
 |---|---|---|
 | `nightly-archive` | every day at 02:15 | `steward archive snapshot --policy archive.yml --execute` |
 | `nightly-replicate` | every day at 03:00 | `steward replicate run --policy replication.yml --execute` |
 | `weekly-verify` | Sunday 04:00 | `steward db verify` |
-| `weekly-inventory-export` | Monday 05:30 | `steward db export --overwrite` → Application Support exports |
+| `weekly-health-snapshot` | Sunday 04:15 | `steward health check --quick --probes --fp-domains --unaccounted /System/Volumes/Data --write-snapshot` |
+| `weekly-inventory-export` | Monday 05:30 | `steward db export --overwrite` → `<data dir>/exports/weekly-latest.tar.xz` |
 
-Override the substituted paths per-host:
+Estate templates (a client publishes, the primary pulls):
+
+| Template | Host | Schedule | Command |
+|---|---|---|---|
+| `nightly-inventory-export` | client | Sunday 01:30 | `steward db export --out <data dir>/exports/estate-latest.tar.xz --overwrite` |
+| `daily-health-publish` | client | every day at 02:00 | `steward health check --quick --probes --write-snapshot` (keeps `health/latest.json` fresh) |
+| `nightly-fleet-pull` | primary | every day at 05:00 | `steward fleet pull --host mac-pro --execute` |
+| `studio-nightly-replicate` | primary | every day at 03:00 | `steward replicate run --policy ~/.config/steward/policies.d/replication.yml --execute` |
+| `studio-weekly-verify` | primary | Sunday 04:00 | `steward db verify --imports` |
+| `studio-weekly-health-snapshot` | primary | Sunday 04:15 | `steward health check … --include-imports --fail-on <defaults>,remote_capacity --write-snapshot` |
+
+Override the substituted values per-host. Every plist exports
+`STEWARD_DATA_DIR` and `STEWARD_HOST` to its job; they default to the data
+dir and estate host id the installing shell resolves (`--host` must be a
+declared estate host):
 
 ```bash
 steward schedule install nightly-archive --execute \
   --home /Users/operator \
   --steward-bin /opt/homebrew/bin/steward \
-  --log-dir /Users/operator/.local/share/steward/logs
+  --log-dir /Users/operator/.local/share/steward/logs \
+  --data-dir /Volumes/Work/steward-data \
+  --host studio
 ```
 
 The materialized plists land at `~/Library/LaunchAgents/com.cerid.steward.<name>.plist`.

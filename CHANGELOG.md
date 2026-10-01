@@ -5,6 +5,285 @@ All notable changes to Steward will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-10-01
+
+The two-host estate release: a new configuration surface, the estate file. Without one,
+Steward behaves as a single-host install, as before.
+
+### The estate line (0.3.29–0.3.35)
+
+- **Estate model and file** (0.3.29–0.3.30) — `~/.config/steward/estate.yml` (or
+  `$STEWARD_ESTATE_CONFIG`) declares hosts and volumes: one owner per volume, per-host access
+  (`rw`, `ro`, `probe`, `ignore`, `forbid`) and plan mode (`full`, `nas-manifest`,
+  `source-only`, `none`). Host identity from `$STEWARD_HOST` or the hostname; data dir from the
+  estate; `steward estate show | validate | whoami | check`.
+- **Guards** (0.3.30) — no inventory is created or migrated on an unmounted data volume; an
+  inventory.db whose `machine_id` is not the one the estate pins refuses mutation.
+- **Estate-driven classification, probes and cloud paths** (0.3.31) — scans skip
+  `*.sparsebundle` directories; `foreign_attach` and `estate_binding` health checks.
+- **Ownership enforcement** (0.3.32) — `apply`, `stash`, `scan`, `policy plan`, `replicate`
+  and `archive` check every path; `report` audits `ownership_would_refuse`, `enforce` refuses.
+- **Pull transport** (0.3.33, 0.3.35) — `steward fleet pull` / `fleet status`: the primary
+  rsyncs a client's published envelope and health sidecar over ssh, verifies the exporter
+  `machine_id`, imports read-only and skips an envelope it already has; `remote_capacity`.
+- **Schedules** (0.3.34) — estate launchd templates; every plist carries `STEWARD_DATA_DIR`
+  and `STEWARD_HOST`.
+- Replication of the inventory as a quick-checked `sqlite-snapshot`, optionally staged on
+  another disk (0.3.27–0.3.28), underpins the per-host NAS namespaces.
+
+### Added
+
+- **ADR-0023** "Multi-host estate: host identity, volume ownership, pull transport", with
+  amendment notes on ADR-0008, ADR-0013, ADR-0017 and ADR-0021.
+- **`docs/estate.example.yml`** — an annotated two-host example (primary + client sharing a
+  NAS, a Time Machine share, an exclusive disk image), validated by the test suite and
+  shipped in the open-core extract.
+
+## [0.3.35] — 2026-10-01
+
+### Fixed
+
+- `fleet pull` no longer re-imports an envelope whose payload is already attached (the client
+  exports weekly, the primary pulls daily); the pull is audited as `unchanged`.
+
+## [0.3.34] — 2026-09-30
+
+Launchd schedules for a two-host estate. Without an estate file the bundled
+schedules behave as before.
+
+### Added
+
+- Schedule templates for an estate: `nightly-inventory-export` (client, Sunday 01:30,
+  `db export` to `<data dir>/exports/estate-latest.tar.xz`, the published envelope),
+  `daily-health-publish` (client, daily 02:00, keeps `health/latest.json` inside
+  `publish.max_age_hours`), `nightly-fleet-pull` (primary, daily 05:00,
+  `fleet pull --host mac-pro --execute`), and primary copies of the replicate, verify and
+  health-snapshot jobs (`studio-*`: the replication policy named by its `policies.d`
+  path, `db verify --imports`, `health check --include-imports` with `remote_capacity`
+  added to the default `--fail-on` set).
+- `steward schedule show|install --data-dir --host`: every bundled plist now exports
+  `STEWARD_DATA_DIR` and `STEWARD_HOST` to its job (`{STEWARD_DATA_DIR}` /
+  `{STEWARD_HOST}` placeholders), defaulting to the data dir and estate host id the
+  installing shell resolves. A `--host` the estate does not declare is refused.
+- `scripts/export-open-core.sh --check` runs the stage's forbidden-content check alone;
+  the check now also refuses a top-level `ops/` directory.
+
+### Changed
+
+- `weekly-inventory-export` writes `<data dir>/exports/weekly-latest.tar.xz` instead of a
+  hardcoded `~/Library/Application Support/steward/exports/` (the same path for the
+  default data dir).
+
+## [0.3.33] — 2026-09-30
+
+Fleet pull over ssh and the estate-wide health view. Without an estate file nothing changes,
+except that each health snapshot also writes `health/latest.json` and fleet matrix rows
+carry a `host_id` (null).
+
+### Added
+
+- **`steward fleet pull --host <id> [--dry-run | --execute]`** — on the estate primary,
+  `rsync -t --partial -e ssh` a client's published envelope and health directory
+  (`hosts.<id>.publish`) into `<data_dir>/inbox/<id>/`; nothing is written on the client
+  (ADR-0009). The envelope's exporter `machine_id` must equal `hosts.<id>.machine_id`, or
+  the pull is refused and audited `fleet_pull_refused`; otherwise `import_inventory`
+  verifies blake3 and the audit chain and attaches it read-only, and the pull is audited
+  `fleet_pull`. Dry-run (the default) prints the rsync commands. Only the primary pulls;
+  each rsync runs under `--timeout` (default 3600 s).
+- **`steward fleet status`** — every estate host: what it publishes, when its envelope was
+  last pulled and imported, and its graded capacity.
+- **`remote_capacity` health check** (opt-in `--fail-on` token) — on the primary, each
+  pulled `health/latest.json` is re-graded against the primary's capacity thresholds; a
+  sidecar older than `publish.max_age_hours` warns, a missing one is unknown. Only
+  emitted with an estate file, on the primary (`steward.core.health.remote`).
+- Health snapshots also write `health/latest.json`, the whole compact report, replaced
+  atomically so a pull never reads a partial file.
+
+### Changed
+
+- Fleet matrix rows (`machines health`, dashboard, MCP) carry the estate `host_id` and
+  show it in place of the machine_id prefix.
+- With `--include-imports`, `stats` / `stats cross` / `surface tree` count only the owner's
+  claims: a host's claims on tiers whose every volume another host owns (a NAS both hosts
+  scanned) are left out, so shared volumes are not counted twice.
+
+## [0.3.32] — 2026-09-30
+
+Volume-ownership enforcement. With an estate file, every command that changes a volume
+checks that this host may change it; without one nothing changes and no audit rows are
+added.
+
+### Added
+
+- **Ownership guard** (`steward.infra.estate.guard`) — wraps the estate ownership rules
+  for this host. `enforcement: report` audits `ownership_would_refuse` and proceeds;
+  `enforcement: enforce` refuses and audits the refusal. An unknown host or an
+  inventory.db bound to another machine refuses in either mode, before anything is
+  written. Refusals are audited one row per check, role and volume, with a count and up
+  to 20 sample paths.
+- **`apply`** — every row's source and destination are checked before any row runs,
+  on dry-run too, so the CLI, MCP `apply_dry_run` / `apply_execute`, the dashboard and
+  `bulk-retire-prep` all inherit it. In `enforce`, any refused row rejects the whole
+  manifest (`ApplyRefused`, `ApplyResult.rejected_foreign_volume`, audit
+  `apply_rejected_foreign_volume`). Promote sources may be read-only; promote
+  destinations must be owned.
+- **`stash finalize` / `stash restore`** — entries on volumes this host does not own are
+  skipped and counted (`refused_foreign_volume`; audit `stash_refused_foreign_volume`).
+- **`scan`** — refuses a root on a volume this host may not scan
+  (`scan_refused_foreign_volume`, exit 2).
+- **`policy plan`** — drops rows this host could not apply and reports the count in the
+  CLI output, the MCP result and a `# ownership:` manifest header line (`report` keeps
+  the rows and says how many it would drop).
+- **`replicate` / `archive`** — destinations and restic repositories must sit inside this
+  host's `replica_grants` (`replicate_refused_namespace`, `archive_refused_namespace`).
+  A refused source is not run and counts as a failed source, with `ownership_refused` in
+  its audit row.
+- **`steward estate check`** sums the `ownership_would_refuse` rows by refusal, check and
+  volume (`would_refuse` in `--json`).
+
+## [0.3.31] — 2026-09-30
+
+Classification, health probes and cloud File Provider paths follow the estate file.
+Without one, output is unchanged except that scans no longer descend into
+`.sparsebundle` directories.
+
+### Added
+
+- **`foreign_attach`** health check (default `--fail-on`): fails when a volume whose mount
+  is `forbid` for this host is mounted, or when `hdiutil info` lists an image whose
+  `exclusive_attach` is another host. The image side is macOS only and a no-op without
+  `hdiutil`; the check runs with `--probes`.
+- **`estate_binding`** health check (default `--fail-on`): fails when this machine is not
+  an estate host, or its inventory.db `machine_id` is missing or not the one the estate
+  pins. Both checks, and the report's `estate` section, only appear with an estate file.
+
+### Changed
+
+- With an estate file, the scanner (walker, container walker, Photos inventory), scan
+  freshness and mount probes classify paths through this host's mounts. A machine the
+  estate does not list keeps the legacy tier grammar.
+- Mount probes probe this host's mounts (skipping `ignore`, `forbid` and `probe_skip`),
+  grade a missing one by its `criticality`, and list any other `/Volumes` mount as
+  `unmanaged` without grading it. Without an estate file the probe set is unchanged; the
+  hardcoded "DropboxStorage is critical" rule is now the legacy estate's mount
+  criticality.
+- Cloud File Provider store and mount roots (`fp status`, dual-presence, `retire_direct`
+  path mapping) come from this host's `cloud-fp` volume, defaulting to the Dropbox
+  layout. On an estate host without one, the FP, dual-presence and fp-domains health
+  sections report `skipped`.
+- Scans honour the estate volume's `scan_excludes` (gitignore-style globs; a trailing `/`
+  matches directories only).
+
+### Fixed
+
+- **Scans skip `*.sparsebundle` directories by default, estate file or not.** The walker
+  treated Time Machine and Photos sparsebundles as ordinary directories, so their band
+  files became claims and identical bands across images looked like duplicates; a dedup
+  plan could stash one and corrupt the image. Band claims recorded by earlier scans stay
+  in the inventory; this only stops new ones.
+
+## [0.3.30] — 2026-09-30
+
+Estate loader, host identity and data-dir guards. Without an estate file nothing changes,
+except that Steward no longer creates a database on an unmounted volume.
+
+### Added
+
+- **Estate file** — `$STEWARD_ESTATE_CONFIG`, else `~/.config/steward/estate.yml`, loaded
+  and validated once per process (`steward.infra.estate`). No file means the single-host
+  legacy behaviour; a path named by `$STEWARD_ESTATE_CONFIG` that does not exist is an error.
+- **Host identity** — `$STEWARD_HOST` (a host id), else the system hostname without
+  `.local`, matched case-insensitively against each host's `hostnames`. On a machine the
+  estate does not list, read commands warn and mutating commands refuse
+  (`require_known_host`; wired into the mutating commands with ownership enforcement).
+- **DB binding** — when the estate pins a host's `machine_id` and the inventory.db carries
+  another, `require_binding` refuses the mutation (`BindingMismatchError`).
+- **`steward estate show | validate | whoami | check`** — the loaded estate as this host
+  sees it; validate a file; host id, role, data dir and binding; live `/Volumes` mounts vs
+  the estate. `check` exits 1 on a missing critical mount, a mounted `forbid` volume, an
+  unmounted data dir, an unknown host or a binding mismatch (missing normal mounts and
+  undeclared mounts are warnings), 2 on an invalid estate file.
+
+### Changed
+
+- Data dir precedence: `STEWARD_DB_PATH` > `STEWARD_DATA_DIR` > the estate's `data_dir`
+  for this host > the platformdirs default.
+
+### Fixed
+
+- Opening the inventory for writing or migrating it refuses a path under
+  `/Volumes/<name>` while that volume is not mounted (`DataDirUnavailableError`). Before,
+  an unmounted data volume silently got a fresh inventory.db, with a new `machine_id`,
+  on the boot disk.
+
+## [0.3.29] — 2026-09-30
+
+Estate model core. Nothing reads an estate file yet, so behaviour is unchanged.
+
+### Added
+
+- **`steward.core.estate`** — pure model of a multi-host estate: hosts, the volumes each
+  one mounts, one owner per volume, and per-host access (`rw` owner-only, `ro`, `probe`,
+  `ignore`, `forbid`). Two hosts that mount the same NAS share at the same path resolve
+  it to different access. `resolve.classify(path, host, estate)` (regex mounts, then
+  longest prefix; aliases count as prefixes) and `ownership.decide(action, path, host,
+  estate)` covering scan, plan, apply/stash/retire, promote source and destination,
+  `nas_manifest`, replica/archive destinations (`replica_grants`; a Time Machine target
+  only takes grants of the form `<root>/<host-id>`) and probes, in `report` or `enforce`
+  mode.
+- `legacy.default_estate()` — the single-host estate assumed without an estate file,
+  transcribed from the existing tier grammar.
+
+### Changed
+
+- `classify_tier()` resolves through the legacy estate; its results are unchanged
+  (parity-tested against the previous implementation). The tier constants stay
+  importable from `steward.core.tiers`.
+- Policy `Tier` is an open, validated tier name instead of a fixed list, so estates can
+  declare their own tiers (`Work`, `container`, …).
+
+## [0.3.28] — 2026-09-30
+
+### Added
+
+- `ReplicationSource.staging_dir` for `kind: sqlite-snapshot` — stage the snapshot on another
+  disk. On a spinning drive, reading and writing the same spindle measured about 1 MB/s
+  against 6.4 MB/s with the copy on an SSD.
+
+## [0.3.27] — 2026-09-30
+
+### Fixed
+
+- **`replicate run` no longer holds a write transaction across rclone.** Each audit row
+  commits as it is written; a multi-hour run used to block every other writer.
+- `backup_inventory_db` copies in one step by default (`pages_per_step=-1`); stepped
+  backups restart whenever another connection writes, so a busy database never finished.
+
+### Added
+
+- `ReplicationSource.kind: sqlite-snapshot` — ship a quick-checked online-backup copy of a
+  SQLite database instead of its live WAL file. Requires `mode: copy`.
+
+## [0.3.26] — 2026-09-30
+
+Estate capacity becomes a real gate, plus two new health probes.
+
+### Added
+
+- **`health check --fp-domains`** — `fp_sync_stuck`: File Provider domains caught in a
+  sync loop (`fileproviderctl`).
+- **`health check --unaccounted <root>`** — `unaccounted_space`: statfs used vs `du -x`
+  (warn 64 GiB, fail 160 GiB).
+- `weekly-health-snapshot.plist` runs `--probes --fp-domains --unaccounted /System/Volumes/Data`.
+
+### Changed
+
+- Free-space findings can fail the health gate; `mount_low` / `mount_missing` are
+  fail-on tokens. Impossible NFS readings grade `unknown`; symlinked or read-only
+  roots are skipped.
+- Open-core export strips the private `annealServices` block from `.mcp.json` and
+  refuses `cerid-team.json`.
+
 ## [0.3.25] — 2026-08-07
 
 Continuous stewardship ops: estate-health polish, audit seal/verify, Wave C surface,

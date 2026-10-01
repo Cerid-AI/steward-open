@@ -4,13 +4,16 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import typer
 from rich.console import Console
 
+from steward.core.errors import EstateError
 from steward.infra.db.admin import migrate, resolve_machine_id
 from steward.infra.db.settings import inventory_db_path
+from steward.infra.estate.guard import Check, Refusal, load_guard
 from steward.infra.scanner.orchestrate import run_scan
 
 app = typer.Typer(name="scan", help="Walk a root, hash every file, insert claims.", invoke_without_command=True)
@@ -44,10 +47,27 @@ def scan_cmd(
 ) -> None:
     """Walk ``root``, compute xxh3 / blake3, upsert permanodes + claims."""
     target = inventory_db_path()
+    guard = load_guard(db_path=target)
+    refusals: list[Refusal] = []
+    if guard is not None:
+        try:
+            refusals = guard.refusals([Check("scan", os.path.abspath(root.expanduser()), "root")])
+        except EstateError as exc:
+            console.print(f"[red]✗[/red] {exc}")
+            raise typer.Exit(2) from exc
     if not target.exists():
         console.print(f"[yellow]inventory.db missing at {target} — running migrate first[/yellow]")
         migrate(target)
     machine_id = resolve_machine_id(target)
+    if guard is not None and refusals:
+        guard.record(
+            target, refusals, refusal_action="scan_refused_foreign_volume", machine_id=machine_id, actor="steward-scan"
+        )
+        reason = refusals[0].decision.reason
+        if guard.enforcing:
+            console.print(f"[red]✗[/red] refusing to scan {root}: {reason}")
+            raise typer.Exit(2)
+        console.print(f"[yellow]⚠[/yellow]  report mode — enforce would refuse this scan: {reason}")
 
     stats = run_scan(
         root=root,

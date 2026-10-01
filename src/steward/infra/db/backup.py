@@ -56,7 +56,7 @@ def backup_inventory_db(
     target_path: Path,
     machine_id: str,
     overwrite: bool = False,
-    pages_per_step: int = 1024,
+    pages_per_step: int = -1,
 ) -> BackupResult:
     """Copy ``source_path`` to ``target_path`` via SQLite's online-backup.
 
@@ -74,9 +74,12 @@ def backup_inventory_db(
         Default False — operators almost always want to write to a
         fresh path so they can tell snapshots apart.
     pages_per_step:
-        SQLite's backup-step batch size in pages. Higher values block
-        the writer for longer per step but copy faster. 1024 (= 4 MiB
-        with the default page_size) is a sane middle ground.
+        SQLite's backup-step batch size in pages. The default ``-1``
+        copies everything in one step under a single read transaction,
+        which a WAL writer does not block. A positive value releases the
+        source between steps, and any write from another connection in
+        that gap restarts the backup from page one — on a busy database
+        it may never finish.
 
     Returns a :class:`BackupResult` with the byte count + wall-clock
     duration. Raises :class:`BackupError` on refusal-to-overwrite or

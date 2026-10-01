@@ -1288,7 +1288,7 @@ _JS = r"""
           html += "<table class='data-table'><thead><tr>" +
             "<th>machine</th><th>source</th><th>scan</th><th class='num'>claims</th><th>chain</th><th>envelope</th><th>level</th></tr></thead><tbody>";
           rows.forEach(function (r) {
-            var mid = String(r.machine_id || r.hostname || "—");
+            var mid = String(r.host_id || r.machine_id || r.hostname || "—");
             html += "<tr><td class='mono'>" + esc(mid.slice(0, 12)) + (mid.length > 12 ? "…" : "") + "</td>" +
               "<td>" + esc(r.source || "—") + "</td>" +
               "<td class='mono'>" + esc(r.last_scan_finished_at || r.scan_finished_at || "—") + "</td>" +

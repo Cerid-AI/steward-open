@@ -23,7 +23,8 @@ The walker has two modes:
   only the parent writes audit rows; permanode upserts are atomic
   (``ON CONFLICT``) so worker races against the same content are safe.
 
-Skipped paths (per :mod:`steward.infra.scanner.skiplist`) are counted in
+Skipped paths (per :mod:`steward.infra.scanner.skiplist`, including the
+estate volume's ``scan_excludes``) are counted in
 ``scan_runs.files_skipped`` but otherwise leave no trace.
 """
 
@@ -40,8 +41,8 @@ from pathlib import Path
 from typing import TypedDict
 
 from steward.core.hashing import HashLadder
-from steward.core.tiers import classify_tier
 from steward.infra.db import repo_audit, repo_claims, repo_permanodes
+from steward.infra.estate.active import classify_tier
 from steward.infra.observability import log_swallowed_error
 from steward.infra.scanner.container_walker import (
     is_container_path,
@@ -52,6 +53,7 @@ from steward.infra.scanner.skiplist import (
     filter_files,
     is_skipped_dir,
     is_skipped_file,
+    scan_excludes_for,
 )
 
 logger = logging.getLogger("steward.infra.scanner.walker")
@@ -128,14 +130,20 @@ class ScanStats:
 def _walk_files(root: Path) -> Iterator[tuple[str, os.stat_result]]:
     """Yield ``(absolute_path, stat_result)`` for every non-skipped file
     under ``root``. Directories listed in
-    :data:`steward.infra.scanner.skiplist.DEFAULT_SKIP_DIRS` are pruned
-    in place; symlinks are not followed.
+    :data:`steward.infra.scanner.skiplist.DEFAULT_SKIP_DIRS` (and the
+    estate volume's ``scan_excludes``) are pruned in place; symlinks are
+    not followed.
     """
+    excludes = scan_excludes_for(str(root))
     for dirpath, dirnames, filenames in os.walk(root):
         # In-place filter so os.walk doesn't recurse into noise dirs.
-        dirnames[:] = filter_dirs(dirnames)
+        dirnames[:] = [
+            d for d in filter_dirs(dirnames) if not excludes.excludes(os.path.join(dirpath, d), is_dir=True)
+        ]
         for fname in filter_files(filenames):
             full = os.path.join(dirpath, fname)
+            if excludes.excludes(full, is_dir=False):
+                continue
             try:
                 st = os.lstat(full)
             except OSError as exc:
@@ -372,6 +380,7 @@ def _loose_files_in(root: Path) -> Iterator[tuple[str, os.stat_result]]:
     """Yield (path, stat) for non-noise files directly under ``root``
     (depth 0 — no recursion). Used by the parallel walker to handle
     files the worker subtrees don't cover."""
+    excludes = scan_excludes_for(str(root))
     try:
         scanner = os.scandir(root)
     except OSError as exc:
@@ -385,7 +394,7 @@ def _loose_files_in(root: Path) -> Iterator[tuple[str, os.stat_result]]:
             except OSError as exc:
                 log_swallowed_error("scanner.walker.is_file", exc, context={"path": entry.path})
                 continue
-            if is_skipped_file(entry.name):
+            if is_skipped_file(entry.name) or excludes.excludes(entry.path, is_dir=False):
                 continue
             try:
                 st = entry.stat(follow_symlinks=False)
@@ -397,6 +406,7 @@ def _loose_files_in(root: Path) -> Iterator[tuple[str, os.stat_result]]:
 
 def _subtrees_of(root: Path) -> list[str]:
     """Return absolute paths of non-noise top-level subdirs under ``root``."""
+    excludes = scan_excludes_for(str(root))
     try:
         scanner = os.scandir(root)
     except OSError as exc:
@@ -411,7 +421,7 @@ def _subtrees_of(root: Path) -> list[str]:
             except OSError as exc:
                 log_swallowed_error("scanner.walker.is_dir", exc, context={"path": entry.path})
                 continue
-            if is_skipped_dir(entry.name):
+            if is_skipped_dir(entry.name) or excludes.excludes(entry.path, is_dir=True):
                 continue
             out.append(entry.path)
     return out

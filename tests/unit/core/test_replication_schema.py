@@ -137,3 +137,37 @@ def test_source_required_fields() -> None:
     """``name`` / ``source`` / ``destination`` are required."""
     with pytest.raises(Exception):
         ReplicationSource()  # type: ignore[call-arg]
+
+
+def test_source_kind_defaults_to_files() -> None:
+    assert ReplicationSource(name="x", source="/a", destination="/b").kind == "files"
+
+
+def test_sqlite_snapshot_requires_copy_mode() -> None:
+    """A single-file source under ``sync`` would delete the rest of the destination."""
+    bad = """\
+version: 1
+kind: ReplicationPolicy
+sources:
+  - name: invdb
+    source: /a/inventory.db
+    destination: /b/
+    mode: sync
+    kind: sqlite-snapshot
+"""
+    with pytest.raises(PolicyError):
+        load_policy_from_text(bad)
+
+
+def test_staging_dir_only_for_sqlite_snapshot() -> None:
+    bad = """\
+version: 1
+kind: ReplicationPolicy
+sources:
+  - name: files
+    source: /a/
+    destination: /b/
+    staging_dir: /fast/staging
+"""
+    with pytest.raises(PolicyError):
+        load_policy_from_text(bad)

@@ -26,6 +26,11 @@ HealthCheckName = Literal[
     "mount_missing",
     "schedule_missing",
     "dual_presence_poor",
+    "fp_sync_stuck",
+    "unaccounted_space",
+    "foreign_attach",
+    "estate_binding",
+    "remote_capacity",
 ]
 
 
@@ -177,6 +182,58 @@ class MountProbe:
 
 
 @dataclass(frozen=True, slots=True)
+class FPDomainHealth:
+    """Per-domain File Provider sync health, parsed from fileproviderctl.
+
+    Exists because of a defect class no other section could see: on
+    2026-08-16 the iCloud Drive domain was found at ``error generation: 628``
+    — a fetch-content retry loop that had been failing since ~July 1,
+    invisibly staging transfer data into nsurlsessiond's DataVault at
+    ~10-20 GB/day until the boot volume was hours from full. The FP layout
+    section (:class:`FPSection`) asks whether the DROPBOX store layout is
+    retire-ready; it never looks at whether any domain's sync engine is
+    actually converging. This does.
+
+    ``error_generation`` is the primary signal: fileproviderd increments it
+    per failed sync cycle, so it climbs monotonically while a loop persists
+    and resets only on domain rebuild. A healthy domain sits at 0-2; the
+    46-day loop reached 628.
+    """
+
+    domain: str
+    error_generation: int | None = None
+    pending_indexable: int | None = None
+    stuck_errors: int = 0
+    level: HealthLevel = "unknown"
+    message: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class UnaccountedSpace:
+    """The df-vs-reachable gap for one volume.
+
+    ``used_bytes`` is what the filesystem reports allocated;
+    ``reachable_bytes`` is what a traversal can actually sum. The difference
+    is space no ``du`` will ever show an operator: DataVault contents,
+    filesystem metadata, and staged transfer data. On 2026-08-16 that gap
+    was ~441 GiB on an 868 GB boot volume and had been growing for 46 days
+    while every directory listing looked innocent. A gap is normal at small
+    scale (vaults and metadata are real); it is the TREND and the magnitude
+    that matter, which is why this is measured and thresholded rather than
+    assumed away.
+    """
+
+    root: str
+    used_bytes: int | None = None
+    reachable_bytes: int | None = None
+    gap_bytes: int | None = None
+    walk_seconds: float | None = None
+    error: str | None = None
+    level: HealthLevel = "unknown"
+    message: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class HealthRollupInfo:
     """Whether inventory counts came from meta rollup cache."""
 
@@ -232,6 +289,31 @@ class FleetHealthSummary:
     notes: tuple[str, ...] = ()
 
 @dataclass(frozen=True, slots=True)
+class ForeignAttachment:
+    """A volume the estate reserves for another host, found mounted or attached here."""
+
+    kind: Literal["forbid_mount", "exclusive_image"]
+    volume_id: str
+    path: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class EstateSection:
+    """This host's standing in the estate file. Absent from the report without one."""
+
+    host_id: str | None
+    """``None`` when the estate does not list this machine."""
+    host_reason: str
+    binding: str | None = None
+    """``bound | unpinned | missing | mismatch``; ``None`` for an unknown host."""
+    binding_message: str = ""
+    foreign: tuple[ForeignAttachment, ...] | None = None
+    """``None`` when not probed (probes off, or an unknown host)."""
+    notes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class EstateHealthReport:
     """Composite estate-health contract (ADR-0017)."""
 
@@ -250,8 +332,11 @@ class EstateHealthReport:
     checks: tuple[HealthCheckResult, ...]
     dual_presence: DualPresenceSection | None = None
     fleet: FleetHealthSummary | None = None
+    fp_domains: tuple[FPDomainHealth, ...] | None = None
+    unaccounted: UnaccountedSpace | None = None
     notes: tuple[str, ...] = ()
     quick: bool = True
+    estate: EstateSection | None = None
 
 
 __all__ = [
@@ -260,8 +345,11 @@ __all__ = [
     "AttachedImportHealth",
     "DualPresenceSection",
     "EstateHealthReport",
+    "EstateSection",
     "FleetHealthSummary",
+    "FPDomainHealth",
     "FPSection",
+    "ForeignAttachment",
     "HealthCheckName",
     "HealthCheckResult",
     "HealthLevel",
@@ -272,4 +360,5 @@ __all__ = [
     "ScheduleHealth",
     "ScheduleTemplateHealth",
     "StashHealth",
+    "UnaccountedSpace",
 ]

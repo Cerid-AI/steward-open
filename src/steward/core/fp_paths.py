@@ -19,6 +19,9 @@ module normalizes between them. External-drive FP (store on
 ``/Volumes/DropboxStorage``, mount under CloudStorage) is a normal
 layout — different devices alone are not a mapping bug.
 
+Roots come from a :class:`~steward.core.estate.CloudFP` layout (the estate's
+cloud-fp volume); every function defaults to the legacy Dropbox layout.
+
 Pure functions only — no I/O. Callers that need existence checks do
 that at the infra boundary.
 """
@@ -29,14 +32,13 @@ import os
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-# Dropbox FP — store materialization roots (longest-prefix first).
-_DROPBOX_STORE_PREFIXES: tuple[str, ...] = (
-    "/Volumes/DropboxStorage/.CloudStorage/Data/Dropbox/",
-    "/Volumes/DropboxStorage/Dropbox/",  # symlink into the store root
-)
+from steward.core.estate.legacy import LEGACY_DROPBOX_FP
+from steward.core.estate.schema import CloudFP
 
-# Relative segment after a store prefix (no leading slash).
-_DROPBOX_MOUNT_REL_ROOT = "Library/CloudStorage/Dropbox"
+
+def _store_prefixes(fp: CloudFP) -> tuple[str, ...]:
+    """Store root, then its aliases (symlinks into the store), each with a trailing slash."""
+    return tuple(root.rstrip("/") + "/" for root in (fp.store_root, *fp.store_aliases))
 
 
 @dataclass(frozen=True)
@@ -69,23 +71,30 @@ def _home() -> Path:
     return Path(os.environ.get("HOME", str(Path.home()))).expanduser()
 
 
-def dropbox_mount_root() -> str:
+def expand_mount_root(fp: CloudFP) -> str:
+    """``fp.mount_root`` with a leading ``~/`` resolved against ``$HOME`` (no trailing slash)."""
+    if fp.mount_root.startswith("~/"):
+        return str(_home() / fp.mount_root[2:])
+    return fp.mount_root.rstrip("/")
+
+
+def dropbox_mount_root(fp: CloudFP = LEGACY_DROPBOX_FP) -> str:
     """Absolute mount root for Dropbox FP (trailing slash)."""
-    return str(_home() / _DROPBOX_MOUNT_REL_ROOT) + "/"
+    return expand_mount_root(fp) + "/"
 
 
-def dropbox_relative(path: str) -> str | None:
+def dropbox_relative(path: str, fp: CloudFP = LEGACY_DROPBOX_FP) -> str | None:
     """Return the path relative to the Dropbox root, or None if not Dropbox."""
     if not path:
         return None
     # Normalize double slashes lightly; keep absolute.
     p = path
-    mount = dropbox_mount_root()
+    mount = dropbox_mount_root(fp)
     if p.startswith(mount):
         return p[len(mount) :]
     if p == mount.rstrip("/"):
         return ""
-    for prefix in _DROPBOX_STORE_PREFIXES:
+    for prefix in _store_prefixes(fp):
         if p.startswith(prefix):
             return p[len(prefix) :]
         if p == prefix.rstrip("/"):
@@ -93,22 +102,22 @@ def dropbox_relative(path: str) -> str | None:
     return None
 
 
-def dropbox_store_path(relative: str) -> str:
+def dropbox_store_path(relative: str, fp: CloudFP = LEGACY_DROPBOX_FP) -> str:
     """Build the canonical store path for a Dropbox-relative path."""
     rel = relative.lstrip("/")
-    base = _DROPBOX_STORE_PREFIXES[0].rstrip("/")
+    base = fp.store_root.rstrip("/")
     return f"{base}/{rel}" if rel else base
 
 
-def dropbox_mount_path(relative: str) -> str:
+def dropbox_mount_path(relative: str, fp: CloudFP = LEGACY_DROPBOX_FP) -> str:
     """Build the user-facing mount path for a Dropbox-relative path."""
     rel = relative.lstrip("/")
-    base = dropbox_mount_root().rstrip("/")
+    base = expand_mount_root(fp)
     return f"{base}/{rel}" if rel else base
 
 
-def is_dropbox_path(path: str) -> bool:
-    return dropbox_relative(path) is not None
+def is_dropbox_path(path: str, fp: CloudFP = LEGACY_DROPBOX_FP) -> bool:
+    return dropbox_relative(path, fp) is not None
 
 
 def is_icloud_mount_path(path: str) -> bool:
@@ -124,6 +133,7 @@ def resolve_fp_paths(
     claim_path: str,
     *,
     prefer_mount_unlink: bool = True,
+    fp: CloudFP = LEGACY_DROPBOX_FP,
 ) -> FPPathResolution:
     """Resolve claim_path into verify + unlink targets for FP retire.
 
@@ -140,10 +150,10 @@ def resolve_fp_paths(
 
     Non-FP paths pass through unchanged.
     """
-    rel = dropbox_relative(claim_path)
+    rel = dropbox_relative(claim_path, fp)
     if rel is not None:
-        store = dropbox_store_path(rel)
-        mount = dropbox_mount_path(rel)
+        store = dropbox_store_path(rel, fp)
+        mount = dropbox_mount_path(rel, fp)
         if prefer_mount_unlink:
             # Same path for verify + unlink (mount).
             return FPPathResolution(
@@ -190,20 +200,20 @@ def resolve_fp_paths(
     )
 
 
-def claim_path_aliases(claim_path: str) -> tuple[str, ...]:
+def claim_path_aliases(claim_path: str, fp: CloudFP = LEGACY_DROPBOX_FP) -> tuple[str, ...]:
     """Return path forms that may appear in ``claims.file_path`` for one file.
 
     Used when flipping ``is_current`` after a retire so both store and
     mount claim rows (if both were scanned) are marked non-current.
     """
     aliases: list[str] = [claim_path]
-    rel = dropbox_relative(claim_path)
+    rel = dropbox_relative(claim_path, fp)
     if rel is not None:
         for candidate in (
-            dropbox_store_path(rel),
-            dropbox_mount_path(rel),
-            # Symlink form under the volume root.
-            f"/Volumes/DropboxStorage/Dropbox/{rel}" if rel else "/Volumes/DropboxStorage/Dropbox",
+            dropbox_store_path(rel, fp),
+            dropbox_mount_path(rel, fp),
+            # Symlink forms of the store root.
+            *(f"{a.rstrip('/')}/{rel}" if rel else a.rstrip("/") for a in fp.store_aliases),
         ):
             if candidate not in aliases:
                 aliases.append(candidate)
@@ -222,6 +232,7 @@ __all__ = [
     "dropbox_mount_root",
     "dropbox_relative",
     "dropbox_store_path",
+    "expand_mount_root",
     "is_dropbox_path",
     "is_icloud_mount_path",
     "posix_parent",

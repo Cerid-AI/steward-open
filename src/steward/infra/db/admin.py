@@ -21,7 +21,7 @@ from alembic.config import Config
 
 from steward.infra.db import repo_audit, repo_meta
 from steward.infra.db.connect import connect, vec_version
-from steward.infra.db.settings import inventory_db_path
+from steward.infra.db.settings import assert_data_dir_mounted, inventory_db_path
 
 logger = logging.getLogger("steward.infra.db.admin")
 
@@ -74,6 +74,7 @@ def migrate(db_path: Path | None = None) -> MigrateResult:
     Idempotent: running twice is a no-op past the first revision.
     """
     target = (db_path or inventory_db_path()).expanduser()
+    assert_data_dir_mounted(target.parent)
     target.parent.mkdir(parents=True, exist_ok=True)
 
     cfg = _alembic_config(target)
@@ -134,6 +135,18 @@ def resolve_machine_id(db_path: Path | None = None) -> str:
     if not mid:
         return migrate(target).machine_id
     return mid
+
+
+def read_machine_id(db_path: Path | None = None) -> str | None:
+    """meta.machine_id of an existing inventory.db; ``None`` if there is none. Never creates or migrates."""
+    target = (db_path or inventory_db_path()).expanduser()
+    if not target.exists():
+        return None
+    con = connect(target, read_only=True, load_vec=False)
+    try:
+        return repo_meta.get(con, "machine_id") or None
+    finally:
+        con.close()
 
 
 def integrity_check(db_path: Path | None = None) -> tuple[bool, str]:

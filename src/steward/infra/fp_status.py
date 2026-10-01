@@ -30,6 +30,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from steward.infra.estate.active import cloud_fp_or_default
+
 LayoutKind = Literal[
     "external_drive_fp",
     "unified_volume",
@@ -143,7 +145,6 @@ _DEFAULT_SAMPLE_RELS: tuple[str, ...] = (
 )
 
 _DROPBOX_PROVIDER_ID = "com.getdropbox.dropbox.fileprovider"
-_DEFAULT_STORE = "/Volumes/DropboxStorage/.CloudStorage/Data/Dropbox"
 
 
 def _probe(path: Path) -> PathProbe:
@@ -335,7 +336,7 @@ def _info_points_at_store(info_path: str | None, store_root: str) -> bool:
 def _info_is_external_store(info_path: str | None) -> bool:
     if not info_path:
         return False
-    return info_path.rstrip("/").startswith("/Volumes/DropboxStorage")
+    return info_path.rstrip("/").startswith(cloud_fp_or_default().volume_root)
 
 
 def classify_layout(report: FPStatusReport) -> LayoutKind:
@@ -502,10 +503,16 @@ def collect_fp_status(
     probe_domain: bool = True,
     probe_name_divergence: bool = True,
 ) -> FPStatusReport:
-    """Probe Dropbox store + mount without heavy FP dumps."""
+    """Probe Dropbox store + mount without heavy FP dumps.
+
+    Roots default to this host's cloud-fp volume in the estate (the legacy
+    Dropbox layout without one).
+    """
     home = home or Path(os.environ.get("HOME", str(Path.home()))).expanduser()
-    mount = mount_root or (home / "Library/CloudStorage/Dropbox")
-    store = store_root or Path(_DEFAULT_STORE)
+    fp = cloud_fp_or_default().fp
+    default_mount = home / fp.mount_root[2:] if fp.mount_root.startswith("~/") else Path(fp.mount_root)
+    mount = mount_root or default_mount
+    store = store_root or Path(fp.store_root)
 
     m_probe = _probe(mount)
     s_probe = _probe(store)

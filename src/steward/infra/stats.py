@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from steward.infra.db.connect import connect
+from steward.infra.estate.rollup import claim_exclusions, owned_claims_where
 
 # ─────────────────────── value objects ──────────────────────────
 
@@ -102,20 +103,21 @@ def _ro(db_path: Path) -> sqlite3.Connection:
     return connect(db_path, read_only=True, load_vec=False)
 
 
-def _claims_source_clause(schemas: list[str]) -> str:
+def _claims_source_clause(schemas: list[str], exclude: dict[str, frozenset[str]] | None = None) -> str:
     """Build a UNION ALL across schemas for the claims table.
 
     Returns a parenthesized SQL expression usable as a subquery in
     ``FROM (…) c``. Single-schema callers get the plain table
-    reference for query-plan parity with v0.2.13.
+    reference for query-plan parity with v0.2.13. ``exclude`` drops,
+    per schema, the tiers another estate host owns (owner-only rollups).
     """
-    if len(schemas) == 1 and schemas[0] == "":
+    if len(schemas) == 1 and schemas[0] == "" and not exclude:
         return "claims"
     parts = []
     cols = "permanode_id, tier, volume, domain, classification, size_bytes, extension, is_current, observed_at"
     for s in schemas:
         prefix = f"{s}." if s else ""
-        parts.append(f"SELECT {cols} FROM {prefix}claims")  # nosec B608
+        parts.append(f"SELECT {cols} FROM {prefix}claims{owned_claims_where(exclude, s)}")  # nosec B608
     return "(" + " UNION ALL ".join(parts) + ")"
 
 
@@ -172,7 +174,7 @@ def _run_with_sources(
     with attach_imports(db_path=db_path) as ctx:
         schemas = [""] + ctx.aliases
         sql = sql_template.format(
-            claims=_claims_source_clause(schemas),
+            claims=_claims_source_clause(schemas, claim_exclusions(ctx)),
             permanodes=_permanodes_source_clause(schemas),
         )
         return ctx.connection.execute(sql, params).fetchall()
@@ -217,7 +219,7 @@ def by_tier(*, db_path: Path, include_imports: bool = False) -> list[TierStat]:
 
     with attach_imports(db_path=db_path) as ctx:
         schemas = [""] + ctx.aliases
-        source = _claims_source_clause(schemas)
+        source = _claims_source_clause(schemas, claim_exclusions(ctx))
         # source built by _claims_source_clause from controlled allowlist
         sql = (
             "SELECT tier, COUNT(*) AS claim_count, "

@@ -37,6 +37,7 @@ from steward.core.errors import FPUnavailableError, ManifestError
 from steward.core.fp_paths import claim_path_aliases, resolve_fp_paths
 from steward.core.hashing import hash_file_by_algo
 from steward.infra.db import repo_audit
+from steward.infra.estate.active import cloud_fp_or_default
 
 logger = logging.getLogger("steward.infra.retire")
 
@@ -168,7 +169,8 @@ def retire_direct(
     On execute: ``Path.unlink()`` + audit-row append + claim is_current → 0.
     """
     claim_str = str(source_path)
-    resolution = resolve_fp_paths(claim_str, prefer_mount_unlink=prefer_mount_unlink)
+    fp = cloud_fp_or_default().fp
+    resolution = resolve_fp_paths(claim_str, prefer_mount_unlink=prefer_mount_unlink, fp=fp)
     # Logic law: verify and unlink are the same path (ADR-0015 amended).
     op_path = Path(resolution.unlink_path)
     if Path(resolution.verify_path) != op_path:
@@ -176,7 +178,7 @@ def retire_direct(
             "retire_direct: internal error — verify_path != unlink_path "
             f"({resolution.verify_path!r} vs {resolution.unlink_path!r})"
         )
-    aliases = claim_path_aliases(claim_str)
+    aliases = claim_path_aliases(claim_str, fp)
 
     used_mount = resolution.used_mount_for_unlink
     try:

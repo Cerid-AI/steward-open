@@ -18,6 +18,7 @@ from __future__ import annotations
 import typer
 from rich.console import Console
 
+from steward.core.errors import EstateError
 from steward.infra.db.admin import migrate, resolve_machine_id
 from steward.infra.db.settings import inventory_db_path
 from steward.infra.replicate.orchestrate import resolve_policy_path, run_replicate
@@ -75,7 +76,7 @@ def run_cmd(
             machine_id=machine_id,
             dry_run=dry_run,
         )
-    except RcloneNotInstalledError as exc:
+    except (RcloneNotInstalledError, EstateError) as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(2) from exc
 

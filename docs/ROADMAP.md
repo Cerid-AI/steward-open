@@ -198,6 +198,13 @@ providing the cooling-off.
 | **v0.3.24** | ADR-0022 inventory surface + data matrix | `core.matrix`, `stats by-volume` / `cross`, `surface tree`, MCP cross/path_tree, dashboard Surface treemap + overlays, plan under `docs/superpowers/plans/` |
 | **v0.3.25** | Continuous stewardship ops | status `--include-imports`; ADR-0017 Accepted; weekly-health-snapshot; ADR-0018 seal+verify; Wave C presence + plan-seed; `bulk-retire-prep`; PyPI prep |
 
+## Shipped (v0.4.0 — October 2026)
+
+| Release | Theme | Highlights |
+|---|---|---|
+| **v0.3.29–0.3.35** | Two-host estate line | Estate model + file, host identity, data-dir mount guard and DB binding, estate-driven probes and cloud paths, volume-ownership enforcement (`report` / `enforce`), `fleet pull` over ssh with `remote_capacity`, estate schedules |
+| **v0.4.0** | Estate release | ADR-0023 (multi-host estate), `docs/estate.example.yml` |
+
 ## Next (after v0.3.25)
 
 **Authoritative open list:** [`OPEN_DEVELOPMENT.md`](OPEN_DEVELOPMENT.md) · **Open-core:** [`OPEN_CORE.md`](OPEN_CORE.md)

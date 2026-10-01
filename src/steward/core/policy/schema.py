@@ -21,22 +21,23 @@ Each starts with ``version: 1`` and a ``kind`` discriminator.
 
 from __future__ import annotations
 
-from typing import Literal
+import re
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
-Tier = Literal[
-    "boot",
-    "L1",
-    "L1w",
-    "L2",
-    "L3a",
-    "DropboxStorage",
-    "Backup",
-    "BOOTCAMP",
-    "other-volume",
-    "unknown",
-]
+_TIER_NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}")
+
+
+def _check_tier_name(value: str) -> str:
+    if not _TIER_NAME_RE.fullmatch(value):
+        raise ValueError(f"invalid tier name {value!r}: expected a letter, then letters, digits, '_' or '-'")
+    return value
+
+
+Tier = Annotated[str, AfterValidator(_check_tier_name)]
+"""A tier name. Open-ended so an estate can declare tiers beyond the built-in
+ladder in :mod:`steward.core.tiers` (``Work``, ``container``, …)."""
 
 
 class _PolicyBase(BaseModel):
@@ -236,6 +237,29 @@ class ReplicationSource(BaseModel):
 
     enabled: bool = True
     """Toggle a source on/off without removing it from the policy."""
+
+    kind: Literal["files", "sqlite-snapshot"] = "files"
+    """``files`` hands ``source`` to rclone as-is. ``sqlite-snapshot`` treats
+    ``source`` as a SQLite database file: Steward takes an online-backup
+    copy, checks it, and rclone ships the copy. A live WAL database copied
+    file-by-file can land with committed pages still in the WAL."""
+
+    staging_dir: str | None = None
+    """Where a ``sqlite-snapshot`` copy is staged before rclone ships it.
+    Default: ``.replicate-staging/`` beside the database. Point it at a
+    different disk when the database lives on a spinning drive — reading
+    and writing the same spindle measured about 1 MB/s against 6.4 MB/s
+    with the copy on an SSD."""
+
+    @model_validator(mode="after")
+    def _snapshot_is_additive(self) -> ReplicationSource:
+        # `sync` from a single-file source would delete everything else at
+        # the destination.
+        if self.kind == "sqlite-snapshot" and self.mode != "copy":
+            raise ValueError(f"source {self.name!r}: kind sqlite-snapshot requires mode copy")
+        if self.staging_dir is not None and self.kind != "sqlite-snapshot":
+            raise ValueError(f"source {self.name!r}: staging_dir applies only to kind sqlite-snapshot")
+        return self
 
 
 class ReplicationPolicy(_PolicyBase):

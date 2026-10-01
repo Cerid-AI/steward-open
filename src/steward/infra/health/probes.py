@@ -8,6 +8,10 @@ recursive walks, no ``fileproviderctl dump``.
 Best-effort: missing mounts and OSError become probe levels/errors —
 never raise out of the collector path (Linux open-core CI and hosts
 without macOS volume layout must stay green).
+
+With an estate file the roots are this host's mounts, graded by their
+``criticality``; any other ``/Volumes`` mount is reported as ``unmanaged``
+without being graded. Without one, the single-host defaults below apply.
 """
 
 from __future__ import annotations
@@ -17,13 +21,15 @@ import os
 import shutil
 import sqlite3
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Sequence
 
 from steward.core.health.evaluate import free_space_level, latency_level, worst_level
 from steward.core.health.model import HealthLevel, MountProbe
 from steward.core.health.thresholds import DEFAULT_THRESHOLDS, HealthThresholds
-from steward.core.tiers import classify_tier
+from steward.infra.estate.active import ActiveEstate, active_estate, classify_tier
+from steward.infra.estate.check import declared_paths, volumes_mounts
 from steward.infra.observability.swallowed import log_swallowed_error
 
 # Well-known macOS dogfood volume roots (presence is best-effort).
@@ -38,6 +44,9 @@ _DEFAULT_TIER_ROOTS: tuple[tuple[str, str, bool], ...] = (
 )
 
 _DEFAULT_STORE = "/Volumes/DropboxStorage/.CloudStorage/Data/Dropbox"
+
+UNMANAGED_TIER = "unmanaged"
+"""Tier given to a mounted ``/Volumes`` path the estate does not declare for this host."""
 
 RootSpec = tuple[str, str | None] | tuple[str, str | None, bool]
 
@@ -106,10 +115,34 @@ def probe_one(
                 context={"root": root},
             )
 
+    read_only = False
+    if present:
+        try:
+            read_only = bool(os.statvfs(path).f_flag & os.ST_RDONLY)
+        except (OSError, AttributeError, ValueError) as exc:
+            log_swallowed_error(
+                "health.probes.statvfs",
+                exc,
+                context={"root": root},
+            )
+
     if not present:
         level: HealthLevel = "fail" if critical else "warn"
         if not message:
             message = "path missing" if critical else "path not present"
+    elif path.is_symlink():
+        # /Volumes/Level 00 is a symlink to /. Probing it scores the boot
+        # volume a second time under a different name, so the estate shows two
+        # findings for one disk. Report it; do not grade it.
+        level = "skipped"
+        message = "symlink to another probed root — not scored twice"
+    elif read_only:
+        # A read-only mount cannot be freed up from this host, so its free
+        # space is not an actionable signal. Left in the report but ungraded:
+        # the mounted release DMG sits permanently at 0 bytes free and warned
+        # forever, which is how a health report trains people to ignore it.
+        level = "skipped"
+        message = "read-only mount — free space is not actionable here"
     else:
         space_lv = free_space_level(free_bytes, total_bytes, thresholds=thr)
         lat_lv = latency_level(latency_ms, thresholds=thr)
@@ -175,6 +208,18 @@ def _dropbox_roots(home: Path) -> list[tuple[str, str | None, bool]]:
     return out
 
 
+def _tier_critical(tier: str | None) -> bool:
+    """Whether this host mounts a volume of ``tier`` as ``critical`` (legacy: DropboxStorage only)."""
+    if tier is None:
+        return False
+    ctx = active_estate()
+    for vol in ctx.estate.volumes.values():
+        mount = vol.mounts.get(ctx.host_id)
+        if vol.tier == tier and mount is not None and mount.criticality == "critical":
+            return True
+    return False
+
+
 def _roots_from_tiers_table(con: sqlite3.Connection) -> list[tuple[str, str | None, bool]]:
     out: list[tuple[str, str | None, bool]] = []
     try:
@@ -184,7 +229,7 @@ def _roots_from_tiers_table(con: sqlite3.Connection) -> list[tuple[str, str | No
         return out
     for name, raw in rows:
         tier = str(name) if name else None
-        critical = tier == "DropboxStorage"
+        critical = _tier_critical(tier)
         prefixes: list[str] = []
         if raw is None:
             continue
@@ -231,7 +276,7 @@ def _roots_from_scan_runs(con: sqlite3.Connection) -> list[tuple[str, str | None
         if tier_name == "unknown":
             tier_name, _ = classify_tier(root_s)
         tier = tier_name if tier_name != "unknown" else None
-        out.append((root_s, tier, tier == "DropboxStorage"))
+        out.append((root_s, tier, _tier_critical(tier)))
     return out
 
 
@@ -239,10 +284,46 @@ def _normalize_root_spec(item: RootSpec | Sequence[object]) -> tuple[str, str | 
     if len(item) == 2:
         root, tier = item[0], item[1]
         tier_s = str(tier) if tier is not None else None
-        return str(root), tier_s, tier_s == "DropboxStorage"
+        return str(root), tier_s, _tier_critical(tier_s)
     root, tier, critical = item[0], item[1], item[2]
     tier_s = str(tier) if tier is not None else None
     return str(root), tier_s, bool(critical)
+
+
+def _estate_roots(
+    ctx: ActiveEstate,
+    *,
+    home: Path,
+    include_mounts: bool,
+    include_cloud_fp: bool,
+    include_home: bool,
+    live: set[str] | None,
+) -> list[tuple[str, str | None, bool]]:
+    """This host's mounts (``ignore``/``forbid`` and ``probe_skip`` left out), then unmanaged ``/Volumes`` mounts."""
+    host = ctx.host_id
+    skip = {os.path.normpath(p) for vol in ctx.estate.volumes.values() if host in vol.mounts for p in vol.probe_skip}
+    out: list[tuple[str, str | None, bool]] = []
+    for vol in ctx.estate.volumes.values():
+        mount = vol.mounts.get(host)
+        if mount is None or mount.access in ("ignore", "forbid"):
+            continue
+        critical = mount.criticality == "critical"
+        if include_mounts:
+            if mount.path != "/":
+                out.append((mount.path, vol.tier, critical))
+            elif include_home:
+                # "/" is the sealed, read-only system volume on macOS; free
+                # space is measured on the data volume the home dir lives on.
+                out.append((str(home), vol.tier, critical))
+        if include_cloud_fp and vol.cloud_fp is not None:
+            out.append((vol.cloud_fp.store_root, vol.tier, critical))
+            mount_root = vol.cloud_fp.mount_root
+            out.append((str(home / mount_root[2:]) if mount_root.startswith("~/") else mount_root, vol.tier, critical))
+    if include_mounts:
+        mounted = volumes_mounts() if live is None else live
+        declared = declared_paths(ctx.estate, host)
+        out.extend((path, UNMANAGED_TIER, False) for path in sorted(mounted - declared))
+    return [r for r in out if os.path.normpath(r[0]) not in skip]
 
 
 def discover_mount_roots(
@@ -253,11 +334,15 @@ def discover_mount_roots(
     include_defaults: bool = True,
     include_dropbox: bool = True,
     include_home: bool = True,
+    live: set[str] | None = None,
 ) -> list[tuple[str, str | None, bool]]:
     """Ordered unique ``(root, tier, critical)`` candidates to probe.
 
     Missing mounts are expected on Linux CI / open-core hosts — discovery
-    itself never raises.
+    itself never raises. With an estate file, ``include_defaults`` means this
+    host's mounts (plus unmanaged ``/Volumes`` mounts, from ``live`` when
+    given) and ``include_dropbox`` its cloud File Provider store and mount;
+    the inventory's tiers table and scan roots are not consulted.
     """
     seen: set[str] = set()
     ordered: list[tuple[str, str | None, bool]] = []
@@ -275,6 +360,19 @@ def discover_mount_roots(
             _add(r, t, c)
 
     home_p = _home_path(home)
+    ctx = active_estate()
+    if not ctx.legacy:
+        for r, t, c in _estate_roots(
+            ctx,
+            home=home_p,
+            include_mounts=include_defaults,
+            include_cloud_fp=include_dropbox,
+            include_home=include_home,
+            live=live,
+        ):
+            _add(r, t, c)
+        return ordered
+
     if include_home:
         _add(str(home_p), "boot", False)
     if include_defaults:
@@ -342,7 +440,10 @@ def probe_mounts(
             candidates = [_normalize_root_spec(x) for x in extra_roots] + candidates
     out: list[MountProbe] = []
     for root, tier, critical in candidates[: max(0, cap)]:
-        out.append(probe_one(root, tier=tier, critical=critical, thresholds=thr))
+        probe = probe_one(root, tier=tier, critical=critical, thresholds=thr)
+        if tier == UNMANAGED_TIER:
+            probe = replace(probe, level="skipped", message="unmanaged — not declared for this host in the estate")
+        out.append(probe)
     return out
 
 
@@ -398,4 +499,5 @@ __all__ = [
     "probe_mount_roots",
     "probe_mounts",
     "probe_one",
+    "UNMANAGED_TIER",
 ]

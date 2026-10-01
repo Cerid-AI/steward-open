@@ -13,11 +13,16 @@ from steward.core.health import (
     DEFAULT_THRESHOLDS,
     FAIL_ON_BROKEN_AUDIT,
     FAIL_ON_DUAL_PRESENCE_POOR,
+    FAIL_ON_ESTATE_BINDING,
     FAIL_ON_FLEET_STALE_SCAN,
+    FAIL_ON_FOREIGN_ATTACH,
     FAIL_ON_FP_NOT_READY,
+    FAIL_ON_FP_SYNC_STUCK,
+    FAIL_ON_MOUNT_LOW,
     FAIL_ON_ROLLUP_STALE,
     FAIL_ON_STALE_SCAN,
     FAIL_ON_STASH_OVERDUE,
+    FAIL_ON_UNACCOUNTED_SPACE,
     KNOWN_FAIL_ON_TOKENS,
     AdapterFreshness,
     AdapterRunHealth,
@@ -37,6 +42,8 @@ from steward.core.health import (
     check_broken_audit,
     check_dual_presence_poor,
     check_fp_not_ready,
+    check_mount_low,
+    check_mount_missing,
     check_rollup_stale,
     check_stale_scan,
     check_stash_overdue,
@@ -179,9 +186,87 @@ def test_default_thresholds_match_adr() -> None:
     assert t.adapter_max_age_hours == 168.0
     assert t.rollup_max_age_hours == 24.0
     assert t.attached_max_age_days == 30.0
-    assert t.free_bytes_min == 10 * 1024**3
-    assert t.free_ratio_min == 0.05
+    # Capacity bands per the ADR-0017 amendment of 2026-08-16 (free space
+    # gained a fail band; the absolute warn floor rose from 10 to 25 GiB).
+    assert t.free_bytes_min == 25 * 1024**3
+    assert t.free_ratio_min == 0.08
+    assert t.free_bytes_fail == 10 * 1024**3
+    assert t.free_ratio_fail == 0.03
     assert t.sample_latency_warn_ms == 2000.0
+
+
+def _mount(
+    root: str, *, level: str = "ok", present: bool = True, free: int | None = None,
+) -> MountProbe:
+    return MountProbe(
+        root=root,
+        tier="boot",
+        present=present,
+        free_bytes=free,
+        total_bytes=808 * 1024**3,
+        sample_latency_ms=1.0,
+        error=None,
+        level=level,  # type: ignore[arg-type]
+        message="",
+    )
+
+
+class TestMountLowGate:
+    """`mount_low` is the capacity gate ADR-0017 deferred in v1.
+
+    Without it `steward health check` exited 0 while the boot volume graded
+    `fail` — the estate gate could not be failed by a disk about to fill.
+    """
+
+    def test_failing_mount_fails_the_check(self) -> None:
+        result = check_mount_low([_mount("/", level="fail", free=20 * 1024**3)])
+        assert result.level == "fail"
+        assert result.name == FAIL_ON_MOUNT_LOW
+
+    def test_warn_mount_warns(self) -> None:
+        assert check_mount_low([_mount("/", level="warn")]).level == "warn"
+
+    def test_unknown_mount_warns_not_ok(self) -> None:
+        """An unmeasurable volume is not a healthy one."""
+        assert check_mount_low([_mount("/", level="unknown")]).level == "warn"
+
+    def test_healthy_mounts_are_ok(self) -> None:
+        assert check_mount_low([_mount("/", level="ok")]).level == "ok"
+
+    def test_no_probes_is_skipped_not_ok(self) -> None:
+        """`health check` defaults to --no-probes. "Not measured" must never
+        be indistinguishable from "every volume is fine" — that is what makes
+        mount_low safe to keep in the DEFAULT fail-on set."""
+        assert check_mount_low([]).level == "skipped"
+
+    def test_absent_roots_do_not_drive_capacity(self) -> None:
+        """A root that is not mounted has no capacity verdict to give."""
+        assert check_mount_low([_mount("/gone", level="fail", present=False)]).level == "skipped"
+
+    def test_mount_low_is_in_the_default_fail_on_set(self) -> None:
+        assert FAIL_ON_MOUNT_LOW in DEFAULT_CHECK_FAIL_ON
+        assert FAIL_ON_MOUNT_LOW in KNOWN_FAIL_ON_TOKENS
+
+
+class TestMountMissingSeparation:
+    def test_full_disk_is_not_reported_as_missing(self) -> None:
+        """A present, working, FULL volume must not read as "mount missing".
+
+        Before free space gained a fail band, `mount_missing` collected every
+        probe at level `fail`, which was safe only while `fail` meant "absent".
+        Afterwards a full disk was reported as "critical mount(s) missing" —
+        a mounted, working volume described as gone.
+        """
+        result = check_mount_missing([_mount("/", level="fail", free=20 * 1024**3)])
+        assert result.level == "ok"
+        assert "present" in result.message
+
+    def test_absent_critical_root_still_fails(self) -> None:
+        result = check_mount_missing([_mount("/gone", level="fail", present=False)])
+        assert result.level == "fail"
+
+    def test_no_probes_is_skipped(self) -> None:
+        assert check_mount_missing([]).level == "skipped"
 
 
 def test_known_fail_on_tokens() -> None:
@@ -198,6 +283,18 @@ def test_known_fail_on_tokens() -> None:
             FAIL_ON_BROKEN_AUDIT,
             FAIL_ON_STASH_OVERDUE,
             FAIL_ON_ROLLUP_STALE,
+            # Capacity, sync-loop and unaccounted-space joined the defaults
+            # in the 2026-08-16 ADR-0017 amendment. Unlike the FP-layout and
+            # fleet tokens they cannot false-red on an unusual host: each
+            # reports `skipped` until its collector actually ran (probes /
+            # --fp-domains / --unaccounted), so "not measured" never grades
+            # as "fine" and never as "broken" either.
+            FAIL_ON_MOUNT_LOW,
+            FAIL_ON_FP_SYNC_STUCK,
+            FAIL_ON_UNACCOUNTED_SPACE,
+            # Graded only when an estate file exists.
+            FAIL_ON_FOREIGN_ATTACH,
+            FAIL_ON_ESTATE_BINDING,
         }
     )
     assert validate_fail_on_tokens(["stale_scan", "nope"]) == ["nope"]
@@ -224,11 +321,54 @@ def test_worst_level_ordering() -> None:
 def test_free_space_and_latency() -> None:
     thr = DEFAULT_THRESHOLDS
     assert free_space_level(50 * 1024**3, 100 * 1024**3, thresholds=thr) == "ok"
-    assert free_space_level(5 * 1024**3, 100 * 1024**3, thresholds=thr) == "warn"
-    assert free_space_level(20 * 1024**3, 1000 * 1024**3, thresholds=thr) == "warn"
+    # 5 GiB is below the 10 GiB absolute fail floor. This asserted "warn"
+    # until 2026-08-16, when free space gained a fail band.
+    assert free_space_level(5 * 1024**3, 100 * 1024**3, thresholds=thr) == "fail"
+    # 2% of a large volume: caught by the ratio fail floor, not the absolute.
+    assert free_space_level(20 * 1024**3, 1000 * 1024**3, thresholds=thr) == "fail"
     assert free_space_level(None, None, thresholds=thr) == "unknown"
     assert latency_level(100.0, thresholds=thr) == "ok"
     assert latency_level(2500.0, thresholds=thr) == "warn"
+
+
+def test_free_space_warn_band_sits_between_ok_and_fail() -> None:
+    thr = DEFAULT_THRESHOLDS
+    # 5% of a large volume: under the 8% warn ratio, over the 3% fail ratio.
+    assert free_space_level(50 * 1024**3, 1000 * 1024**3, thresholds=thr) == "warn"
+    # 20 GiB absolute: under the 25 GiB warn floor, over the 10 GiB fail floor.
+    assert free_space_level(20 * 1024**3, 100 * 1024**3, thresholds=thr) == "warn"
+
+
+def test_free_space_live_boot_volume_condition_is_fail() -> None:
+    """The 2026-08-16 Mac Pro reading must not grade as a warning.
+
+    20.4 GiB free of 808 GiB (2.5%) is under a day of runway at the observed
+    ~20 GB/day burn, on the volume whose filling took the whole CI fleet and
+    the Docker VM down three days earlier.
+    """
+    level = free_space_level(
+        int(20.43 * 1024**3), int(808.39 * 1024**3), thresholds=DEFAULT_THRESHOLDS,
+    )
+    assert level == "fail"
+
+
+def test_free_space_impossible_reading_is_unknown_not_ok() -> None:
+    """More free than total cannot be scored — and must never read healthy.
+
+    `shutil.disk_usage` returns exactly this on the NFS tiers here
+    (/Volumes/Backup, /Volumes/Level_3a report -2388% used). The huge bogus
+    `free` cleared both floors, so two network tiers reported "ok" while
+    nothing about them was being measured.
+    """
+    thr = DEFAULT_THRESHOLDS
+    assert free_space_level(815 * 1024**3, 32 * 1024**3, thresholds=thr) == "unknown"
+
+
+def test_free_space_fail_floors_are_tighter_than_warn() -> None:
+    """Guards the ordering invariant the two bands depend on."""
+    thr = DEFAULT_THRESHOLDS
+    assert thr.free_bytes_fail < thr.free_bytes_min
+    assert thr.free_ratio_fail < thr.free_ratio_min
 
 
 # ── named checks ─────────────────────────────────────────────────

@@ -89,6 +89,8 @@ class MachineHealthRow:
     schema_version: str | None = None
     payload_blake3: str | None = None
     level: HealthLevel = "unknown"
+    host_id: str | None = None
+    """Estate host id for this machine; ``None`` without an estate or for an unpinned machine."""
 
 
 @dataclass(frozen=True, slots=True)

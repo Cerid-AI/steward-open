@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -24,6 +25,7 @@ from steward.core.errors import ManifestError
 from steward.infra.db import repo_audit
 from steward.infra.db.connect import connect
 from steward.infra.db.settings import inventory_db_path
+from steward.infra.estate.guard import Check, OwnershipGuard, Refusal, load_guard
 
 logger = logging.getLogger("steward.infra.db.stash_cmd")
 
@@ -159,9 +161,19 @@ def finalize_stash(
         return {"finalized": 0, "skipped_young": 0, "errored": 0}
 
     counts = {"finalized": 0, "skipped_young": 0, "errored": 0}
+    guard = load_guard(db_path=target)
+    refusals = _refusals(
+        guard, [Check("stash-finalize", e.destination_path, "destination", e.source_path) for e in match.entries]
+    )
     con = connect(target)
     try:
+        blocked = _audit_refusals(
+            guard, con, refusals, counts, machine_id=machine_id, actor="steward-stash-finalize", run_id=manifest_run_id
+        )
         for entry in match.entries:
+            if entry.source_path in blocked:
+                counts["refused_foreign_volume"] += 1
+                continue
             if not force and entry.age_days < cooling_off_days:
                 counts["skipped_young"] += 1
                 continue
@@ -227,9 +239,27 @@ def restore_stash(
         return {"restored": 0, "skipped_occupied": 0, "errored": 0}
 
     counts = {"restored": 0, "skipped_occupied": 0, "errored": 0}
+    guard = load_guard(db_path=target)
+    refusals = _refusals(
+        guard,
+        [
+            check
+            for e in match.entries
+            for check in (
+                Check("stash-restore", e.source_path, "source", e.source_path),
+                Check("stash-restore", e.destination_path, "destination", e.source_path),
+            )
+        ],
+    )
     con = connect(target)
     try:
+        blocked = _audit_refusals(
+            guard, con, refusals, counts, machine_id=machine_id, actor="steward-stash-restore", run_id=manifest_run_id
+        )
         for entry in match.entries:
+            if entry.source_path in blocked:
+                counts["refused_foreign_volume"] += 1
+                continue
             dst = Path(entry.destination_path)
             src = Path(entry.source_path)
             if not dst.exists():
@@ -271,6 +301,43 @@ def restore_stash(
     finally:
         con.close()
     return counts
+
+
+def _refusals(guard: OwnershipGuard | None, checks: list[Check]) -> list[Refusal]:
+    """Ownership refusals for a stash group; raises before any write on an unknown host or foreign DB."""
+    return [] if guard is None else guard.refusals(checks)
+
+
+def _audit_refusals(
+    guard: OwnershipGuard | None,
+    con: sqlite3.Connection,
+    refusals: list[Refusal],
+    counts: dict[str, int],
+    *,
+    machine_id: str,
+    actor: str,
+    run_id: str,
+) -> set[str]:
+    """Audit the refusals; return the source paths of entries to skip (enforce mode).
+
+    With an estate the counts gain ``refused_foreign_volume``; without one
+    nothing changes.
+    """
+    if guard is None:
+        return set()
+    counts["refused_foreign_volume"] = 0
+    if refusals:
+        guard.audit(
+            con,
+            refusals,
+            refusal_action="stash_refused_foreign_volume",
+            machine_id=machine_id,
+            actor=actor,
+            manifest_run_id=run_id,
+        )
+    if not guard.enforcing:
+        return set()
+    return {str(r.check.ref) for r in refusals}
 
 
 def _parse_iso(s: object) -> datetime:

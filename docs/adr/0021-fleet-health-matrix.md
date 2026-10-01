@@ -455,3 +455,13 @@ scope until chain-archive lands.
 - **Accepted** — implementation landed with unit + integration tests (core.fleet, infra.fleet, machines health CLI, MCP, dashboard /api/fleet, estate health composition).
 - Supersedes nothing; deepens multi-machine operator surfaces and
   feeds ADR-0017 estate health with envelope SLA signals.
+
+## Amendment
+
+**Amended 2026-10-01 — multi-host estate (ADR-0023).** The sync transport this
+ADR deferred (§7 item 5, §8) is ADR-0023's pull: the estate primary fetches
+each client's envelope and health sidecar over ssh (`steward fleet pull`,
+`steward fleet status`). Matrix rows carry the estate `host_id` (null
+without an estate) and show it in place of the machine_id prefix. Envelope
+SLA is unchanged; the primary also grades client capacity
+(`remote_capacity`). Still no push and no daemon.

@@ -114,6 +114,15 @@ def apply_cmd(
             prefer_mount_unlink=prefer_mount,
         )
     except ApplyRefused as exc:
+        foreign = exc.result.rejected_foreign_volume
+        if foreign:
+            console.print(f"[red]✗[/red] {exc}")
+            for msg in foreign[:20]:
+                console.print(f"  • {msg}")
+            if len(foreign) > 20:
+                console.print(f"  • … and {len(foreign) - 20} more")
+            console.print("[dim]`steward estate show` lists the volumes this host owns.[/dim]")
+            raise typer.Exit(2) from exc
         rejected = exc.result.rejected_imported_claims
         console.print(
             f"[red]✗[/red] apply rejected by pre-flight: "

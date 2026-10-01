@@ -4,9 +4,12 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from types import SimpleNamespace
 
 from steward.core.health.thresholds import HealthThresholds
+from steward.infra.health import probes as probes_mod
 from steward.infra.health.probes import (
     collect_mount_probes,
     discover_mount_roots,
@@ -27,7 +30,19 @@ def test_probe_one_present_tmp(tmp_path: Path) -> None:
     assert probe.total_bytes is not None and probe.total_bytes > 0
     assert probe.sample_latency_ms is not None and probe.sample_latency_ms >= 0
     assert probe.error is None
-    assert probe.level in ("ok", "warn")  # warn only if host truly low free
+    # Thresholds are pinned wide open rather than left at defaults. This
+    # asserted `level in ("ok", "warn")` against whatever free space the
+    # developer's disk happened to have, and started failing the moment this
+    # machine crossed into the new `fail` band — the test was grading the host,
+    # not the probe.
+    generous = HealthThresholds(
+        free_bytes_min=0,
+        free_ratio_min=0.0,
+        free_bytes_fail=0,
+        free_ratio_fail=0.0,
+        sample_latency_warn_ms=1e12,
+    )
+    assert probe_one(str(root), tier="L1", thresholds=generous).level == "ok"
 
 
 def test_probe_mount_missing_is_not_exception(tmp_path: Path) -> None:
@@ -94,8 +109,73 @@ def test_low_free_threshold_forces_warn(tmp_path: Path) -> None:
     thr = HealthThresholds(
         free_bytes_min=10**18,
         free_ratio_min=0.99,
+        # The fail floors must be pinned too, or this test's outcome depends
+        # on the host's actual free space: on a machine sitting under the
+        # default 3% ratio floor the probe grades "fail" and the assertion
+        # below flips. Left at defaults it passed or failed by disk.
+        free_bytes_fail=0,
+        free_ratio_fail=0.0,
         sample_latency_warn_ms=1e12,
     )
     present = probe_one(str(tmp_path), tier="boot", thresholds=thr)
     assert present.present
     assert present.level == "warn"
+
+
+def test_low_free_threshold_forces_fail(tmp_path: Path) -> None:
+    """Free space must be able to reach `fail`, not cap at `warn`."""
+    thr = HealthThresholds(
+        free_bytes_fail=10**18,
+        free_ratio_fail=0.99,
+        free_bytes_min=10**18,
+        free_ratio_min=0.99,
+        sample_latency_warn_ms=1e12,
+    )
+    probe = probe_one(str(tmp_path), tier="boot", thresholds=thr)
+    assert probe.present
+    assert probe.level == "fail"
+
+
+def test_symlinked_root_is_skipped_not_scored_twice(tmp_path: Path) -> None:
+    """/Volumes/Level 00 is a symlink to / — one disk, two findings."""
+    target = tmp_path / "real"
+    target.mkdir()
+    link = tmp_path / "alias"
+    link.symlink_to(target)
+    probe = probe_one(str(link), tier="boot")
+    assert probe.level == "skipped"
+    assert "symlink" in probe.message
+
+
+def test_read_only_mount_is_skipped(tmp_path: Path, monkeypatch) -> None:
+    """A read-only volume's free space is not actionable from this host.
+
+    The mounted release DMG sits permanently at 0 bytes free; grading it
+    warned forever, which is how a report teaches people to ignore it.
+    """
+    real = os.statvfs(tmp_path)
+    # Copy the real result and only flip the read-only bit: shutil.disk_usage
+    # calls os.statvfs too, so a stub carrying just f_flag breaks it.
+    read_only = SimpleNamespace(
+        **{name: getattr(real, name) for name in dir(real) if name.startswith("f_")},
+    )
+    read_only.f_flag = real.f_flag | os.ST_RDONLY
+    monkeypatch.setattr(os, "statvfs", lambda _p: read_only)
+    probe = probe_one(str(tmp_path), tier="boot")
+    assert probe.level == "skipped"
+    assert "read-only" in probe.message
+
+
+def test_impossible_disk_usage_is_not_ok(tmp_path: Path, monkeypatch) -> None:
+    """The NFS tiers report more free than total; that must not read healthy."""
+    monkeypatch.setattr(probes_mod.shutil, "disk_usage", lambda _p: _Usage())
+    probe = probe_one(str(tmp_path), tier="L3a")
+    assert probe.level == "unknown"
+
+
+class _Usage:
+    """Mirrors the real /Volumes/Backup reading: free far exceeds total."""
+
+    total = 32 * 1024**3
+    used = 0
+    free = 815 * 1024**3

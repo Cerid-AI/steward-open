@@ -305,3 +305,14 @@ This ADR governs v0.3.0. Work that lands under it:
 
 Each piece is its own sprint; v0.3.0 ships when (1)–(5) are in. (6)
 and (7) are v0.3.x.
+
+## Amendment
+
+**Amended 2026-10-01 — transport (ADR-0023).** The envelope transport left to
+the operator here (Alternative C) is now `steward fleet pull`: the estate
+primary rsyncs a client's published envelope over ssh into its data dir,
+refuses an envelope whose exporter `machine_id` is not the one the estate
+pins for that client, and imports it as specified above. An envelope whose
+payload is already attached is not re-imported. The wire format, the
+read-only `ATTACH` and the apply pre-flight are unchanged; manual
+`db export` / `db import` still work.

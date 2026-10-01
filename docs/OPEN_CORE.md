@@ -81,8 +81,9 @@ The fleet health matrix (ADR-0021) is designed to ship in open-core:
 | launchd weekly-export template | Optional / private lab | Matrix only *reads* export audit / `exports/` |
 
 No Cerid host paths or field-notes layout may land in matrix code or
-public snapshot payloads. Envelope transport is operator-owned until a
-separate sync-transport ADR (not required for PyPI readiness).
+public snapshot payloads. Envelope transport is ADR-0023's pull: an estate
+primary fetches each client's envelope over ssh (`steward fleet pull`);
+moving envelopes by hand still works without an estate file.
 
 ---
 

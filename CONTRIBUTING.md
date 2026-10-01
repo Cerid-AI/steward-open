@@ -35,6 +35,12 @@ OPEN_CORE_PUSH=1 scripts/sync-steward-open.sh
 
 Or push a version tag / run the `Open-core publish` workflow.
 
+## Commit conventions
+
+- **No AI attribution.** Do not add `Co-Authored-By: Claude` / `Anthropic` / any
+  other AI tool line to commits, PR titles, or PR descriptions — even if you used
+  an AI assistant during development. Commits are authored by humans.
+
 ## Safety / design rules (public contract)
 
 - Operator-in-the-loop: destructive apply requires explicit dry-run or execute.

@@ -299,6 +299,7 @@ def stash_finalize_execute(
         "finalized": int(counts.get("finalized", 0)),
         "skipped_young": int(counts.get("skipped_young", 0)),
         "errored": int(counts.get("errored", 0)),
+        **_refused(counts),
     }
 
 
@@ -329,7 +330,15 @@ def stash_restore_execute(*, run_id: str) -> dict[str, Any]:
         "restored": int(counts.get("restored", 0)),
         "skipped_occupied": int(counts.get("skipped_occupied", 0)),
         "errored": int(counts.get("errored", 0)),
+        **_refused(counts),
     }
+
+
+def _refused(counts: dict[str, int]) -> dict[str, int]:
+    """Entries the estate refused (only reported when an estate is configured)."""
+    if "refused_foreign_volume" not in counts:
+        return {}
+    return {"refused_foreign_volume": int(counts["refused_foreign_volume"])}
 
 
 __all__ = [

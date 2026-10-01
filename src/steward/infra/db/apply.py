@@ -14,15 +14,20 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from steward.core.errors import FPUnavailableError, ManifestError
+from steward.core.errors import EstateError, FPUnavailableError, ManifestError
 from steward.core.manifest_io import read_manifest
 from steward.infra.db import repo_audit
 from steward.infra.db.connect import connect
 from steward.infra.db.settings import inventory_db_path
+from steward.infra.estate.guard import OwnershipGuard, load_guard, manifest_checks
 from steward.infra.nas_manifest import record_nas_manifest_row
 from steward.infra.promote import promote_with_verify
 from steward.infra.stash import same_fs_rename_to_stash
+
+if TYPE_CHECKING:
+    from steward.core.model.manifest import Manifest
 
 logger = logging.getLogger("steward.infra.db.apply")
 
@@ -49,20 +54,31 @@ class ApplyResult:
     were attempted."""
     nas_export_path: str | None = None
     """Set when one or more ``nas_manifest`` rows were recorded (execute)."""
+    rejected_foreign_volume: list[str] = field(default_factory=list)
+    """Refusals from the volume-ownership pre-flight: rows on volumes this
+    host may not act on (estate ``enforce``), or an unknown host / an
+    inventory.db bound to another machine. When non-empty the apply was
+    rejected and zero rows were attempted."""
 
 
 class ApplyRefused(Exception):
-    """Raised by :func:`apply_manifest` when the pre-flight refuses.
+    """Raised by :func:`apply_manifest` when a pre-flight refuses.
 
     The exception's ``result`` attribute carries the partial
-    :class:`ApplyResult` with ``rejected_imported_claims`` populated.
+    :class:`ApplyResult` with ``rejected_imported_claims`` or
+    ``rejected_foreign_volume`` populated.
     """
 
-    def __init__(self, result: "ApplyResult") -> None:
+    def __init__(self, result: "ApplyResult", message: str | None = None) -> None:
         super().__init__(
-            f"apply rejected: {len(result.rejected_imported_claims)} row(s) reference attached-only permanodes"
+            message
+            or f"apply rejected: {len(result.rejected_imported_claims)} row(s) reference attached-only permanodes"
         )
         self.result = result
+
+    @property
+    def rejected(self) -> list[str]:
+        return [*self.result.rejected_imported_claims, *self.result.rejected_foreign_volume]
 
 
 def apply_manifest(
@@ -99,6 +115,10 @@ def apply_manifest(
 
     manifest = read_manifest(manifest_path)
 
+    guard = load_guard(db_path=inventory_db_path())
+    if guard is not None:
+        _ownership_preflight(guard, manifest=manifest, machine_id=machine_id, dry_run=dry_run)
+
     # ── Pre-flight FIRST. Uses its own connection so we never leak an
     # attach into the apply transaction. ──
     preflight = preflight_apply(manifest=manifest, machine_id=machine_id)
@@ -123,6 +143,52 @@ def apply_manifest(
         )
     finally:
         con.close()
+
+
+def _ownership_preflight(guard: OwnershipGuard, *, manifest: Manifest, machine_id: str, dry_run: bool) -> None:
+    """Check every row's source and destination against volume ownership.
+
+    Runs on dry-run too. ``report`` mode audits ``ownership_would_refuse``
+    and returns; ``enforce`` audits ``apply_rejected_foreign_volume`` and
+    raises :class:`ApplyRefused` before any row is attempted.
+    """
+    run_id = manifest.header.manifest_run_id
+
+    def refused(messages: list[str], message: str) -> ApplyRefused:
+        result = ApplyResult(
+            manifest_run_id=run_id,
+            rows_total=len(manifest.rows),
+            rows_applied=0,
+            rows_skipped=0,
+            rows_errored=0,
+            dry_run=dry_run,
+            rejected_foreign_volume=messages,
+        )
+        return ApplyRefused(result, message)
+
+    try:
+        guard.require_identity()
+    except EstateError as exc:
+        raise refused([str(exc)], f"apply rejected: {exc}") from exc
+
+    refusals = guard.refusals(manifest_checks(manifest.rows))
+    if not refusals:
+        return
+    guard.record(
+        inventory_db_path(),
+        refusals,
+        refusal_action="apply_rejected_foreign_volume",
+        machine_id=machine_id,
+        actor="steward-apply",
+        manifest_run_id=run_id,
+        context={"dry_run": dry_run},
+    )
+    if guard.enforcing:
+        rows = len({r.check.ref for r in refusals})
+        raise refused(
+            [r.describe() for r in refusals],
+            f"apply rejected: {rows} row(s) touch volumes host {guard.identity.host_id!r} may not change",
+        )
 
 
 def _record_preflight_rejection(

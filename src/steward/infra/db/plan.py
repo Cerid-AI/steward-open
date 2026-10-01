@@ -9,11 +9,13 @@ ADR-0019: auto-registers plans into the data-dir backlog unless
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
 from steward._version import __version__
 from steward.core.manifest_io import write_manifest
+from steward.core.model.manifest import Manifest, ManifestRow
 from steward.core.policy import load_policy
 from steward.core.policy.reconciler import (
     load_current_claims_from_db,
@@ -23,6 +25,7 @@ from steward.core.policy.reconciler import (
 from steward.core.policy.schema import PromotionPolicy, RetentionPolicy
 from steward.infra.db.connect import connect
 from steward.infra.db.settings import inventory_db_path
+from steward.infra.estate.guard import load_guard, row_checks
 from steward.infra.observability.swallowed import log_swallowed_error
 
 logger = logging.getLogger("steward.infra.db.plan")
@@ -44,6 +47,11 @@ class PlanSummary:
     blocked_reasons: tuple[str, ...] = ()
     registered_path: str | None = None
     action_counts: dict[str, int] | None = None
+    ownership_dropped: int = 0
+    """Rows left out because this host does not own their volume (estate
+    ``enforce``); in ``report`` mode the rows stay and this counts them."""
+    ownership_note: str | None = None
+    """Same as the manifest header's ``ownership`` line; ``None`` without an estate."""
 
 
 def plan_dedup_retire(
@@ -76,6 +84,7 @@ def plan_dedup_retire(
         steward_version=__version__,
         root_prefix=root_prefix,
     )
+    manifest, dropped = _filter_owned(manifest, target)
     write_manifest(out_path, manifest)
 
     stash = sum(1 for r in manifest.rows if r.action == "stash")
@@ -96,6 +105,8 @@ def plan_dedup_retire(
         plan_id=manifest.header.manifest_run_id,
         estimated_bytes=estimated_bytes,
         action_counts=action_counts,
+        ownership_dropped=dropped,
+        ownership_note=manifest.header.ownership,
     )
     if register:
         summary = _maybe_register(
@@ -136,6 +147,7 @@ def plan_promote(
         phase_name=phase_name,
         max_files=max_files,
     )
+    manifest, dropped = _filter_owned(manifest, target)
     write_manifest(out_path, manifest)
 
     promote = sum(1 for r in manifest.rows if r.action == "promote")
@@ -154,6 +166,8 @@ def plan_promote(
         plan_id=manifest.header.manifest_run_id,
         estimated_bytes=estimated_bytes,
         action_counts=action_counts,
+        ownership_dropped=dropped,
+        ownership_note=manifest.header.ownership,
     )
     if register:
         summary = _maybe_register(
@@ -194,6 +208,37 @@ def plan(
             register=register,
         )
     raise TypeError(f"plan: no reconciler for {type(policy).__name__}")
+
+
+def _filter_owned(manifest: Manifest, db_path: Path) -> tuple[Manifest, int]:
+    """Drop rows on volumes this host may not change (estate ``enforce``).
+
+    ``report`` keeps them. Either way the count lands in the manifest
+    header's ``ownership`` line. Without an estate the manifest is returned
+    untouched. Planning is read-only, so nothing is audited here; ``apply``
+    audits whatever reaches it.
+    """
+    guard = load_guard(db_path=db_path)
+    if guard is None:
+        return manifest, 0
+    host = guard.require_identity()
+    kept: list[ManifestRow] = []
+    by_volume: Counter[str] = Counter()
+    for i, row in enumerate(manifest.rows):
+        refusals = guard.refusals(row_checks(i, row))
+        if refusals:
+            by_volume[refusals[0].decision.volume_id or "unclaimed"] += 1
+            if guard.enforcing:
+                continue
+        kept.append(row)
+    if not by_volume:
+        return manifest, 0
+    total = sum(by_volume.values())
+    volumes = ", ".join(f"{vol} {n}" for vol, n in sorted(by_volume.items()))
+    verb = "dropped" if guard.enforcing else "report mode, would drop"
+    note = f"{verb} {total} row(s) on volumes {host} may not change ({volumes})"
+    header = manifest.header.model_copy(update={"ownership": note})
+    return Manifest(header=header, rows=tuple(kept)), total
 
 
 def _action_counts(rows: object) -> dict[str, int]:
@@ -256,6 +301,8 @@ def _maybe_register(
             blocked_reasons=rec.blocked_reasons,
             registered_path=rec.manifest_path,
             action_counts=dict(rec.action_counts),
+            ownership_dropped=summary.ownership_dropped,
+            ownership_note=summary.ownership_note,
         )
     except Exception as exc:  # noqa: BLE001 — registration is best-effort
         log_swallowed_error(

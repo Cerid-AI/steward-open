@@ -16,6 +16,8 @@ from steward.core.health.model import (
     AttachedImportHealth,
     DualPresenceSection,
     EstateHealthReport,
+    EstateSection,
+    FPDomainHealth,
     FPSection,
     HealthCheckResult,
     HealthLevel,
@@ -24,15 +26,22 @@ from steward.core.health.model import (
     MountProbe,
     RootScanFreshness,
     StashHealth,
+    UnaccountedSpace,
 )
 from steward.core.health.thresholds import (
     DEFAULT_THRESHOLDS,
     FAIL_ON_BROKEN_AUDIT,
     FAIL_ON_DUAL_PRESENCE_POOR,
+    FAIL_ON_ESTATE_BINDING,
+    FAIL_ON_FOREIGN_ATTACH,
     FAIL_ON_FP_NOT_READY,
+    FAIL_ON_FP_SYNC_STUCK,
+    FAIL_ON_MOUNT_LOW,
+    FAIL_ON_MOUNT_MISSING,
     FAIL_ON_ROLLUP_STALE,
     FAIL_ON_STALE_SCAN,
     FAIL_ON_STASH_OVERDUE,
+    FAIL_ON_UNACCOUNTED_SPACE,
     KNOWN_FAIL_ON_TOKENS,
     HealthThresholds,
 )
@@ -109,15 +118,38 @@ def free_space_level(
     *,
     thresholds: HealthThresholds,
 ) -> HealthLevel:
-    """Warn when free space is below absolute or ratio floors."""
+    """Grade free space against the absolute and ratio floors.
+
+    Returns "fail" below the fail floors, "warn" below the warn floors,
+    "unknown" when the reading is missing or impossible.
+
+    Two things this deliberately does NOT do:
+
+    - It does not cap at "warn". It used to, which meant a volume with hours
+      of runway left graded the same as one merely getting full. See the
+      threshold rationale in ``thresholds.py``.
+    - It does not score an impossible reading as healthy. ``shutil.disk_usage``
+      returns nonsense on some NFS mounts here — /Volumes/Backup reports more
+      free bytes than total, which computes to -2388% used. The old code read
+      the huge ``free`` value, cleared both floors and returned "ok", so two
+      network tiers were reporting healthy while nothing about them was
+      being measured. An unmeasurable volume is "unknown", never "ok".
+    """
     if free_bytes is None:
         return "unknown"
-    if free_bytes < thresholds.free_bytes_min:
-        return "warn"
+    ratio: float | None = None
     if total_bytes is not None and total_bytes > 0:
+        if free_bytes > total_bytes:
+            return "unknown"
         ratio = free_bytes / float(total_bytes)
-        if ratio < thresholds.free_ratio_min:
-            return "warn"
+    if free_bytes < thresholds.free_bytes_fail or (
+        ratio is not None and ratio < thresholds.free_ratio_fail
+    ):
+        return "fail"
+    if free_bytes < thresholds.free_bytes_min or (
+        ratio is not None and ratio < thresholds.free_ratio_min
+    ):
+        return "warn"
     return "ok"
 
 
@@ -484,6 +516,299 @@ def check_dual_presence_poor(
     )
 
 
+def fp_domain_level(
+    error_generation: int | None,
+    *,
+    thresholds: HealthThresholds,
+) -> HealthLevel:
+    """Grade one File Provider domain by its failed-cycle counter.
+
+    ``error_generation`` is fileproviderd's own monotonic count of failed
+    sync cycles for the domain; it resets only on domain rebuild. A missing
+    value means the dump could not be parsed for this domain — "unknown",
+    never "ok", for the same reason an unmeasurable volume never grades
+    healthy.
+    """
+    if error_generation is None:
+        return "unknown"
+    if error_generation >= thresholds.fp_error_generation_fail:
+        return "fail"
+    if error_generation >= thresholds.fp_error_generation_warn:
+        return "warn"
+    return "ok"
+
+
+def check_fp_sync_stuck(
+    domains: Sequence[FPDomainHealth] | None,
+    *,
+    thresholds: HealthThresholds = DEFAULT_THRESHOLDS,
+) -> HealthCheckResult:
+    """The sync-loop gate this estate lacked for 46 days.
+
+    On 2026-08-16 the iCloud Drive domain was found at error generation 628
+    with thousands of ``itemNotFound/missingLastKnownVersion`` fetch errors —
+    a retry loop running since ~July 1, staging transfer data into
+    nsurlsessiond's DataVault (unreachable by any du) at ~10-20 GB/day until
+    the boot volume was hours from full. `fp status` could not see it: that
+    check asks whether the Dropbox STORE LAYOUT is retire-ready, not whether
+    any domain's sync engine converges.
+
+    ``None`` means the collector did not run — "skipped", which is what makes
+    this token safe in the default fail-on set.
+    """
+    if domains is None:
+        return HealthCheckResult(
+            name=FAIL_ON_FP_SYNC_STUCK,
+            level="skipped",
+            message="File Provider domain dump not collected (see --fp-domains)",
+            details={},
+        )
+    if not domains:
+        # An empty parse of a dump that DID run is indistinguishable from a
+        # parser that silently stopped matching — the format drifts across
+        # macOS releases. Never let that read as healthy.
+        return HealthCheckResult(
+            name=FAIL_ON_FP_SYNC_STUCK,
+            level="unknown",
+            message="fileproviderctl dump yielded no parseable domains",
+            details={"domains": 0},
+        )
+    worst = worst_level(d.level for d in domains)
+    looping = [d for d in domains if d.level in ("warn", "fail")]
+    if looping:
+        return HealthCheckResult(
+            name=FAIL_ON_FP_SYNC_STUCK,
+            level=worst,
+            message=(
+                f"{len(looping)} File Provider domain(s) in a sync-error loop"
+            ),
+            details={
+                "domains": {
+                    d.domain: {
+                        "error_generation": d.error_generation,
+                        "stuck_errors": d.stuck_errors,
+                        "pending_indexable": d.pending_indexable,
+                    }
+                    for d in looping
+                },
+                "warn_at": thresholds.fp_error_generation_warn,
+                "fail_at": thresholds.fp_error_generation_fail,
+            },
+        )
+    return HealthCheckResult(
+        name=FAIL_ON_FP_SYNC_STUCK,
+        level="ok" if worst in ("ok", "skipped") else worst,
+        message=f"{len(domains)} File Provider domain(s) converging",
+        details={"domains": len(domains)},
+    )
+
+
+def unaccounted_level(
+    gap_bytes: int | None,
+    *,
+    thresholds: HealthThresholds,
+) -> HealthLevel:
+    """Grade the df-vs-reachable gap.
+
+    Floors are ABSOLUTE, not proportional: DataVaults and filesystem
+    metadata — the legitimate part of any gap — are a roughly fixed cost on
+    a macOS volume, not one that scales with disk size the way content does.
+    A negative gap (traversal found more than allocated, e.g. hardlink
+    double-counting) is measurement noise and grades ok.
+    """
+    if gap_bytes is None:
+        return "unknown"
+    if gap_bytes >= thresholds.unaccounted_fail_bytes:
+        return "fail"
+    if gap_bytes >= thresholds.unaccounted_warn_bytes:
+        return "warn"
+    return "ok"
+
+
+def check_unaccounted_space(
+    unaccounted: UnaccountedSpace | None,
+    *,
+    thresholds: HealthThresholds = DEFAULT_THRESHOLDS,
+) -> HealthCheckResult:
+    """Alert when allocated space diverges from what traversal can reach.
+
+    The 2026-08-16 incident in one number: df reported 743 GiB used while
+    root's du could reach 293 GiB — a 441 GiB gap that had grown for 46 days
+    with every directory listing looking innocent, because the data sat in a
+    DataVault no userland traversal may enter. Twelve hypotheses were tested
+    by hand to find it. This check is that hunt, automated to its first
+    step: measure the gap, alarm on magnitude.
+
+    ``None`` means the (deliberately slow, opt-in) walk did not run —
+    "skipped", never "ok".
+    """
+    if unaccounted is None:
+        return HealthCheckResult(
+            name=FAIL_ON_UNACCOUNTED_SPACE,
+            level="skipped",
+            message="df-vs-reachable walk not run (see --unaccounted; slow)",
+            details={},
+        )
+    if unaccounted.gap_bytes is None:
+        return HealthCheckResult(
+            name=FAIL_ON_UNACCOUNTED_SPACE,
+            level="unknown",
+            message=unaccounted.error or "gap could not be measured",
+            details={"root": unaccounted.root},
+        )
+    level = unaccounted_level(unaccounted.gap_bytes, thresholds=thresholds)
+    gib = unaccounted.gap_bytes / 1024**3
+    return HealthCheckResult(
+        name=FAIL_ON_UNACCOUNTED_SPACE,
+        level=level,
+        message=(
+            f"{gib:.0f} GiB allocated on {unaccounted.root} is unreachable by "
+            "traversal (DataVaults / fs metadata / staged transfers)"
+            if level != "ok"
+            else f"unaccounted space on {unaccounted.root} within normal bounds ({gib:.0f} GiB)"
+        ),
+        details={
+            "root": unaccounted.root,
+            "used_bytes": unaccounted.used_bytes,
+            "reachable_bytes": unaccounted.reachable_bytes,
+            "gap_bytes": unaccounted.gap_bytes,
+            "warn_bytes": thresholds.unaccounted_warn_bytes,
+            "fail_bytes": thresholds.unaccounted_fail_bytes,
+        },
+    )
+
+
+def check_mount_missing(mounts: Sequence[MountProbe]) -> HealthCheckResult:
+    """Roots that are not present at all.
+
+    Kept strictly separate from capacity. Until 2026-08-16 this check simply
+    collected every probe at level ``fail``, which was fine while ``fail``
+    could only mean "critical mount absent". Once free space gained a fail
+    band, a disk that was merely FULL landed here and got reported as
+    "critical mount(s) missing" — a present, mounted, working volume described
+    as gone. Presence is the discriminator, not the level.
+    """
+    absent = [m for m in mounts if not m.present]
+    if not mounts:
+        return HealthCheckResult(
+            name=FAIL_ON_MOUNT_MISSING,
+            level="skipped",
+            message="mount probes not run",
+            details={"probed": 0},
+        )
+    if not absent:
+        return HealthCheckResult(
+            name=FAIL_ON_MOUNT_MISSING,
+            level="ok",
+            message=f"all {len(mounts)} probed root(s) present",
+            details={"probed": len(mounts)},
+        )
+    critical = [m for m in absent if m.level == "fail"]
+    return HealthCheckResult(
+        name=FAIL_ON_MOUNT_MISSING,
+        level="fail" if critical else "warn",
+        message=f"{len(absent)} probed root(s) not present",
+        details={"roots": [m.root for m in absent]},
+    )
+
+
+def check_mount_low(mounts: Sequence[MountProbe]) -> HealthCheckResult:
+    """Capacity verdict over the present mounts — the `mount_low` gate.
+
+    ADR-0017 deferred this token in v1, so a mount grading ``fail`` could not
+    fail the estate gate: `steward health check` exited 0 with the boot volume
+    hours from filling. That is the gap this closes.
+
+    Absence of probes is reported as ``skipped``, never ``ok``. `health check`
+    defaults to ``--no-probes``, so "no mounts in the report" is the common
+    case and it means capacity was not measured — which must not be
+    indistinguishable from every volume being healthy.
+    """
+    present = [m for m in mounts if m.present]
+    if not present:
+        return HealthCheckResult(
+            name=FAIL_ON_MOUNT_LOW,
+            level="skipped",
+            message="no live mount probes — capacity not measured (see --probes)",
+            details={"probed": len(mounts)},
+        )
+    failing = [m for m in present if m.level == "fail"]
+    degraded = [m for m in present if m.level in ("warn", "unknown")]
+    if failing:
+        return HealthCheckResult(
+            name=FAIL_ON_MOUNT_LOW,
+            level="fail",
+            message=f"{len(failing)} mount(s) critically low on free space",
+            details={
+                "roots": [m.root for m in failing],
+                "free_bytes": {m.root: m.free_bytes for m in failing},
+            },
+        )
+    if degraded:
+        return HealthCheckResult(
+            name=FAIL_ON_MOUNT_LOW,
+            level="warn",
+            message=f"{len(degraded)} mount(s) low on free space or unmeasurable",
+            details={"roots": [m.root for m in degraded]},
+        )
+    return HealthCheckResult(
+        name=FAIL_ON_MOUNT_LOW,
+        level="ok",
+        message=f"{len(present)} mount(s) with healthy free space",
+        details={"probed": len(present)},
+    )
+
+
+def check_foreign_attach(estate: EstateSection) -> HealthCheckResult:
+    """Fail when a volume reserved for another host is mounted or attached here.
+
+    Two hosts attaching one sparsebundle at once corrupts it, and a ``forbid``
+    mount means this host can see (and scan, or stash into) a volume it must
+    never touch.
+    """
+    if estate.foreign is None:
+        reason = (
+            "this machine is not an estate host"
+            if estate.host_id is None
+            else "attach probes not run (see --probes)"
+        )
+        return HealthCheckResult(name=FAIL_ON_FOREIGN_ATTACH, level="skipped", message=reason, details={})
+    if not estate.foreign:
+        return HealthCheckResult(
+            name=FAIL_ON_FOREIGN_ATTACH,
+            level="ok",
+            message="no forbidden mounts or foreign exclusive images",
+            details={"host": estate.host_id},
+        )
+    return HealthCheckResult(
+        name=FAIL_ON_FOREIGN_ATTACH,
+        level="fail",
+        message="; ".join(f.message for f in estate.foreign),
+        details={
+            "host": estate.host_id,
+            "found": [{"kind": f.kind, "volume": f.volume_id, "path": f.path} for f in estate.foreign],
+        },
+    )
+
+
+def check_estate_binding(estate: EstateSection) -> HealthCheckResult:
+    """Fail when this machine is not an estate host, or its inventory.db is not the pinned one."""
+    if estate.host_id is None:
+        return HealthCheckResult(
+            name=FAIL_ON_ESTATE_BINDING,
+            level="fail",
+            message=f"this machine is not an estate host: {estate.host_reason}",
+            details={"host": None},
+        )
+    level: HealthLevel = "fail" if estate.binding in ("mismatch", "missing") else "ok"
+    return HealthCheckResult(
+        name=FAIL_ON_ESTATE_BINDING,
+        level=level,
+        message=estate.binding_message or f"binding {estate.binding}",
+        details={"host": estate.host_id, "binding": estate.binding},
+    )
+
+
 def build_health_checks(
     *,
     inventory: InventoryIntegrity,
@@ -496,8 +821,15 @@ def build_health_checks(
     rollups: HealthRollupInfo | None,
     thresholds: HealthThresholds = DEFAULT_THRESHOLDS,
     dual_presence: DualPresenceSection | None = None,
+    fp_domains: Sequence[FPDomainHealth] | None = None,
+    unaccounted: UnaccountedSpace | None = None,
+    estate: EstateSection | None = None,
 ) -> list[HealthCheckResult]:
-    """Build the stable named check list for a report composition."""
+    """Build the stable named check list for a report composition.
+
+    The estate checks are only graded when an estate file exists, so a
+    single-host report keeps its exact check list.
+    """
     checks: list[HealthCheckResult] = [
         check_stale_scan(scan_freshness, thresholds=thresholds),
         check_broken_audit(inventory),
@@ -550,27 +882,13 @@ def build_health_checks(
                 },
             )
         )
-    # Mounts
-    missing = [m for m in mounts if m.level == "fail"]
-    low = [m for m in mounts if m.level == "warn"]
-    if missing:
-        checks.append(
-            HealthCheckResult(
-                name="mount_missing",
-                level="fail",
-                message=f"{len(missing)} critical mount(s) missing",
-                details={"roots": [m.root for m in missing]},
-            )
-        )
-    if low:
-        checks.append(
-            HealthCheckResult(
-                name="mount_low",
-                level="warn",
-                message=f"{len(low)} mount(s) low free space or high latency",
-                details={"roots": [m.root for m in low]},
-            )
-        )
+    checks.append(check_mount_missing(mounts))
+    checks.append(check_mount_low(mounts))
+    checks.append(check_fp_sync_stuck(fp_domains, thresholds=thresholds))
+    checks.append(check_unaccounted_space(unaccounted, thresholds=thresholds))
+    if estate is not None:
+        checks.append(check_foreign_attach(estate))
+        checks.append(check_estate_binding(estate))
     return checks
 
 
@@ -607,6 +925,9 @@ def evaluate_fail_on(
             rollups=report.rollups,
             thresholds=thr,
             dual_presence=report.dual_presence,
+            fp_domains=report.fp_domains,
+            unaccounted=report.unaccounted,
+            estate=report.estate,
         )
     failed: list[HealthCheckResult] = []
     for c in checks:
@@ -684,9 +1005,15 @@ __all__ = [
     "build_health_checks",
     "check_broken_audit",
     "check_dual_presence_poor",
+    "check_estate_binding",
+    "check_foreign_attach",
     "check_fp_not_ready",
     "check_rollup_stale",
+    "check_fp_sync_stuck",
+    "check_mount_low",
+    "check_mount_missing",
     "check_stale_scan",
+    "check_unaccounted_space",
     "check_stash_overdue",
     "compute_overall",
     "evaluate_fail_on",

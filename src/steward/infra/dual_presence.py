@@ -29,10 +29,12 @@ from steward.core.dual_presence import (
     is_conflict_relative,
     map_claim_to_pair,
 )
-from steward.core.fp_paths import dropbox_mount_root
+from steward.core.estate.legacy import LEGACY_DROPBOX_FP
+from steward.infra.estate.active import cloud_fp_or_default
 from steward.infra.observability.swallowed import log_swallowed_error
 
-DEFAULT_STORE_ROOT = Path("/Volumes/DropboxStorage/.CloudStorage/Data/Dropbox")
+DEFAULT_STORE_ROOT = Path(LEGACY_DROPBOX_FP.store_root)
+"""Legacy store root; :func:`default_store_root` follows the estate."""
 DEFAULT_SAMPLE_LIMIT = 32
 DEFAULT_HEALTH_SAMPLE_LIMIT = 32
 DEFAULT_DUAL_RATIO_THRESHOLD = 0.5
@@ -116,11 +118,12 @@ class FilterArtifacts:
 
 
 def default_mount_root() -> Path:
-    return Path(dropbox_mount_root().rstrip("/"))
+    """This host's cloud-fp mount root (the legacy Dropbox one without an estate file)."""
+    return Path(cloud_fp_or_default().mount_root)
 
 
 def default_store_root() -> Path:
-    return DEFAULT_STORE_ROOT
+    return Path(cloud_fp_or_default().store_root)
 
 
 def _path_exists(path: Path) -> tuple[bool | None, str | None, int | None]:

@@ -11,6 +11,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from steward.core.errors import EstateError
 from steward.infra.db.admin import resolve_machine_id
 from steward.infra.db.settings import inventory_db_path
 from steward.infra.db.stash_cmd import (
@@ -49,17 +50,23 @@ def finalize_cmd(
     """Permanently delete the destination files for one stash group."""
     target = inventory_db_path()
     machine_id = resolve_machine_id(target)
-    counts = finalize_stash(
-        manifest_run_id=run_id,
-        machine_id=machine_id,
-        cooling_off_days=cooling_off_days,
-        force=force,
-    )
+    try:
+        counts = finalize_stash(
+            manifest_run_id=run_id,
+            machine_id=machine_id,
+            cooling_off_days=cooling_off_days,
+            force=force,
+        )
+    except EstateError as exc:
+        console.print(f"[red]✗[/red] {exc}")
+        raise typer.Exit(2) from exc
     console.print(f"[bold]finalize[/bold] run_id={run_id}")
     console.print(f"  finalized      = {counts['finalized']:,}")
     console.print(f"  skipped_young  = {counts['skipped_young']:,}")
     console.print(f"  errored        = {counts['errored']:,}")
-    if counts["errored"]:
+    if "refused_foreign_volume" in counts:
+        console.print(f"  refused        = {counts['refused_foreign_volume']:,}  [dim](volume ownership)[/dim]")
+    if counts["errored"] or counts.get("refused_foreign_volume"):
         raise typer.Exit(1)
 
 
@@ -70,15 +77,21 @@ def restore_cmd(
     """Move the stash group's files back to their original paths."""
     target = inventory_db_path()
     machine_id = resolve_machine_id(target)
-    counts = restore_stash(
-        manifest_run_id=run_id,
-        machine_id=machine_id,
-    )
+    try:
+        counts = restore_stash(
+            manifest_run_id=run_id,
+            machine_id=machine_id,
+        )
+    except EstateError as exc:
+        console.print(f"[red]✗[/red] {exc}")
+        raise typer.Exit(2) from exc
     console.print(f"[bold]restore[/bold] run_id={run_id}")
     console.print(f"  restored          = {counts['restored']:,}")
     console.print(f"  skipped_occupied  = {counts['skipped_occupied']:,}")
     console.print(f"  errored           = {counts['errored']:,}")
-    if counts["errored"]:
+    if "refused_foreign_volume" in counts:
+        console.print(f"  refused           = {counts['refused_foreign_volume']:,}  [dim](volume ownership)[/dim]")
+    if counts["errored"] or counts.get("refused_foreign_volume"):
         raise typer.Exit(1)
 
 

@@ -104,12 +104,7 @@ def reconcile_dedup_retire(
     dedup opportunities exist.
     """
     run_id = manifest_run_id or uuid4().hex
-    # Cast to plain ``dict[str, int]`` so runtime lookups with arbitrary
-    # tier strings (from DB rows that may carry legacy / unknown tiers)
-    # type-check. The pydantic schema still validates the YAML side
-    # against the Tier Literal — this is the boundary cast, not a
-    # rejection of policy.
-    priority: dict[str, int] = {str(k): v for k, v in policy.dedup_retire.tier_priority.items()}
+    priority: dict[str, int] = dict(policy.dedup_retire.tier_priority)
     live_set: set[str] = {t for t in policy.dedup_retire.live_tiers if t in priority}
     nas_set: set[str] = set(policy.dedup_retire.nas_manifest_tiers)
     recovered_substrings: list[str] = list(policy.dedup_retire.recovered_substrings)

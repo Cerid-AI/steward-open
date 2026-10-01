@@ -1,0 +1,50 @@
+# Two hosts on different LANs sharing one NAS mounted at the same paths on both.
+# Anonymised from a real two-host estate; the shape is what matters.
+version: 1
+kind: Estate
+metadata: {name: two-host-lab}
+enforcement: report
+hosts:
+  studio: {role: primary, hostnames: [Studio-Host], machine_id: null, data_dir: /Volumes/Work/steward-data}
+  mac-pro:
+    role: client
+    hostnames: [MacPro-Host]
+    machine_id: 00000000-0000-4000-8000-000000000002
+    data_dir: /Volumes/Level 2/steward-data
+    publish:
+      ssh: operator@mac-pro.example.ts.net
+      envelope: /Volumes/Level 2/steward-data/exports/estate-latest.tar.xz
+      health_dir: /Volumes/Level 2/steward-data/health
+      max_age_hours: 36
+volumes:
+  macpro-boot: {kind: boot, tier: boot, owner: mac-pro, probe_skip: ["/Volumes/Level 00"], mounts: {mac-pro: {path: /, prefixes: [/Users/, /private/, /var/], access: rw, criticality: critical}}}
+  macpro-l1: {tier: L1, owner: mac-pro, mounts: {mac-pro: {path: "/Volumes/Level 1", access: rw}}}
+  macpro-l1w: {tier: L1w, owner: mac-pro, mounts: {mac-pro: {path: "/Volumes/Level 1w", access: rw}}}
+  macpro-l2: {tier: L2, owner: mac-pro, mounts: {mac-pro: {path: "/Volumes/Level 2", access: rw, criticality: critical}}}
+  macpro-dropbox:
+    kind: cloud-fp
+    tier: DropboxStorage
+    owner: mac-pro
+    cloud_fp:
+      provider: dropbox
+      store_root: /Volumes/DropboxStorage/.CloudStorage/Data/Dropbox
+      store_aliases: [/Volumes/DropboxStorage/Dropbox]
+      mount_root: /Users/operator/Library/CloudStorage/Dropbox
+      cooling_off: dropbox-cloud-trash-account-specific
+    mounts: {mac-pro: {path: /Volumes/DropboxStorage, match_regex: '/Library/CloudStorage/Dropbox(?:-[^/]+)?(?:/|$)', access: rw, criticality: critical}}
+  macpro-bootcamp: {tier: BOOTCAMP, owner: mac-pro, plan: none, mounts: {mac-pro: {path: /Volumes/BOOTCAMP, access: rw}}}
+  studio-boot: {kind: boot, tier: boot, owner: studio, mounts: {studio: {path: /, prefixes: [/Users/, /private/, /var/], access: rw, criticality: critical}, mac-pro: {path: /Volumes/operator, access: ignore}}}
+  studio-work: {tier: Work, owner: studio, mounts: {studio: {path: /Volumes/Work, access: rw, criticality: critical}}}
+  studio-cache: {tier: Cache, owner: studio, plan: none, mounts: {studio: {path: /Volumes/Cache, access: rw}}}
+  studio-photos: {kind: disk-image, tier: StudioPhotos, owner: studio, plan: none, image: /Volumes/Level_3a/Studio-Photos.sparsebundle, exclusive_attach: studio, mounts: {studio: {path: "/Volumes/Studio Photos", access: rw, criticality: critical}, mac-pro: {path: "/Volumes/Studio Photos", access: forbid}}}
+  nas-l3a: {kind: nas, tier: L3a, owner: studio, aliases: [/Volumes/NFS-Level3a/], scan_excludes: ["*.sparsebundle/", "boot-rebuild-backup-*/"], mounts: {studio: {path: /Volumes/Level_3a, access: rw}, mac-pro: {path: /Volumes/Level_3a, access: ro, scan: false}}}
+  nas-backup:
+    kind: nas
+    tier: Backup
+    owner: studio
+    time_machine_target: true
+    scan: false
+    plan: source-only
+    aliases: [/Volumes/NFS-Backup/]
+    mounts: {studio: {path: /Volumes/Backup, access: ro}, mac-pro: {path: /Volumes/Backup, access: ro}}
+    replica_grants: [{host: studio, prefix: _steward-mirror/studio}, {host: studio, prefix: _steward-archive/studio}, {host: mac-pro, prefix: _steward-mirror/mac-pro}]

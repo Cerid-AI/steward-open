@@ -22,6 +22,8 @@ from steward.cli import (
     dashboard_cmd,
     db_cmd,
     embed_cmd,
+    estate_cmd,
+    fleet_cmd,
     fp_cmd,
     health_cmd,
     import_cmd,
@@ -70,6 +72,8 @@ app.add_typer(stats_cmd.app, name="stats")
 app.add_typer(surface_cmd.app, name="surface")
 app.add_typer(fp_cmd.app, name="fp")
 app.add_typer(health_cmd.app, name="health")
+app.add_typer(estate_cmd.app, name="estate")
+app.add_typer(fleet_cmd.app, name="fleet")
 
 
 def _try_add_optional(module_path: str, name: str) -> None:

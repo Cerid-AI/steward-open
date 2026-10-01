@@ -17,6 +17,7 @@ from steward.core.matrix.types import (
 )
 from steward.core.matrix.validate import validate_cross
 from steward.infra.db.connect import connect
+from steward.infra.estate.rollup import claim_exclusions, owned_claims_where
 
 _CLAIM_COLS = (
     "permanode_id, tier, volume, domain, classification, size_bytes, "
@@ -28,25 +29,28 @@ def _ro(db_path: Path) -> sqlite3.Connection:
     return connect(db_path, read_only=True, load_vec=False)
 
 
-def _claims_source_with_source(schemas: list[str]) -> str:
-    """UNION ALL of claims projecting a ``source`` column (local|attached)."""
+def _claims_source_with_source(schemas: list[str], exclude: dict[str, frozenset[str]] | None = None) -> str:
+    """UNION ALL of claims projecting a ``source`` column (local|attached).
+
+    ``exclude`` drops, per schema, the tiers another estate host owns.
+    """
     parts: list[str] = []
     for s in schemas:
         prefix = f"{s}." if s else ""
         label = "local" if not s else "attached"
         parts.append(
-            f"SELECT {_CLAIM_COLS}, '{label}' AS source FROM {prefix}claims"  # nosec B608
+            f"SELECT {_CLAIM_COLS}, '{label}' AS source FROM {prefix}claims{owned_claims_where(exclude, s)}"  # nosec B608
         )
     return "(" + " UNION ALL ".join(parts) + ")"
 
 
-def _claims_source_plain(schemas: list[str]) -> str:
-    if len(schemas) == 1 and schemas[0] == "":
+def _claims_source_plain(schemas: list[str], exclude: dict[str, frozenset[str]] | None = None) -> str:
+    if len(schemas) == 1 and schemas[0] == "" and not exclude:
         return "claims"
     parts = []
     for s in schemas:
         prefix = f"{s}." if s else ""
-        parts.append(f"SELECT {_CLAIM_COLS} FROM {prefix}claims")  # nosec B608
+        parts.append(f"SELECT {_CLAIM_COLS} FROM {prefix}claims{owned_claims_where(exclude, s)}")  # nosec B608
     return "(" + " UNION ALL ".join(parts) + ")"
 
 
@@ -100,12 +104,14 @@ def cross_stats(*, db_path: Path, req: CrossStatsRequest) -> CrossStatsResult:
     order = _order_expr(req.measure)
     limit = int(req.limit)
 
-    def execute(schemas: list[str], con: sqlite3.Connection) -> list[Sequence[Any]]:
+    def execute(
+        schemas: list[str], con: sqlite3.Connection, exclude: dict[str, frozenset[str]] | None = None
+    ) -> list[Sequence[Any]]:
         has_source_col = needs_source
         if has_source_col:
-            source = _claims_source_with_source(schemas)
+            source = _claims_source_with_source(schemas, exclude)
         else:
-            source = _claims_source_plain(schemas)
+            source = _claims_source_plain(schemas, exclude)
         a_expr = _dim_expr(req.dim_a, has_source_col=has_source_col)
         if req.dim_b is None:
             sql = (
@@ -143,7 +149,7 @@ def cross_stats(*, db_path: Path, req: CrossStatsRequest) -> CrossStatsResult:
 
         with attach_imports(db_path=db_path) as ctx:
             schemas = [""] + ctx.aliases
-            rows = execute(schemas, ctx.connection)
+            rows = execute(schemas, ctx.connection, claim_exclusions(ctx))
             if not ctx.aliases:
                 notes.append("include_imports=true but no attached inventories")
 

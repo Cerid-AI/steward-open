@@ -46,8 +46,8 @@ from datetime import datetime, timezone
 from typing import IO
 
 from steward.core.hashing import HashResult
-from steward.core.tiers import classify_tier
 from steward.infra.db import repo_claims, repo_permanodes
+from steward.infra.estate.active import classify_tier
 from steward.infra.observability import log_swallowed_error
 from steward.infra.scanner.skiplist import (
     filter_dirs,

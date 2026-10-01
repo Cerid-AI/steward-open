@@ -38,6 +38,9 @@ class ManifestHeader(BaseModel):
     phase_name: str | None = None
     manifest_run_id: str
     """Stable identifier tying every audit row in one apply back to this plan."""
+    ownership: str | None = None
+    """Rows the planner left out (or, in report mode, would leave out) because
+    this host does not own their volume. ``None`` without an estate."""
 
 
 class ManifestRow(BaseModel):

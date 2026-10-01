@@ -15,11 +15,12 @@ Three operations:
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from steward.core.policy.schema import ArchivePolicy
 from steward.infra.archive.restic import (
@@ -28,7 +29,8 @@ from steward.infra.archive.restic import (
     run_restic_init,
     run_restic_snapshots,
 )
-from steward.infra.db import repo_audit
+from steward.infra.db import repo_audit, repo_meta
+from steward.infra.estate.guard import Check, OwnershipGuard, load_guard
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +104,48 @@ def _summarise_for_audit(r: ResticRunResult) -> dict[str, object]:
     }
 
 
+def _guard(con: sqlite3.Connection) -> OwnershipGuard | None:
+    """This host's ownership guard; raises on an unknown host or a foreign inventory.db."""
+    guard = load_guard(db_machine_id=repo_meta.get(con, "machine_id"))
+    if guard is not None:
+        guard.require_identity()
+    return guard
+
+
+def _repository_refused(
+    guard: OwnershipGuard | None,
+    con: sqlite3.Connection,
+    *,
+    repository: str,
+    ref: str,
+    machine_id: str,
+    context: dict[str, Any],
+) -> str | None:
+    """Check a restic repository against this host's replica grants.
+
+    Audits any refusal; returns the reason when ``enforce`` refuses it.
+    """
+    if guard is None:
+        return None
+    path = repository.removeprefix("local:")
+    refusals = guard.refusals([Check("archive-destination", os.path.expanduser(path), "repository", ref)])
+    if not refusals:
+        return None
+    guard.audit(
+        con,
+        refusals,
+        refusal_action="archive_refused_namespace",
+        machine_id=machine_id,
+        actor="steward-archive",
+        context=context,
+    )
+    return refusals[0].decision.reason if guard.enforcing else None
+
+
+def _not_run(op: Literal["init", "backup"], reason: str) -> ResticRunResult:
+    return ResticRunResult(op=op, returncode=1, duration_seconds=0.0, stderr_tail=reason)
+
+
 # ─────────────────────── snapshot ──────────────────────────
 
 
@@ -113,7 +157,13 @@ def run_archive_snapshot(
     dry_run: bool,
     policy_name: str = "archive.yml",
 ) -> ArchiveSnapshotReport:
-    """Run ``restic backup`` once per enabled source. Caller owns the txn."""
+    """Run ``restic backup`` once per enabled source. Caller owns the txn.
+
+    With an estate, a repository outside this host's replica grants is
+    audited (``archive_refused_namespace`` / ``ownership_would_refuse``);
+    in ``enforce`` mode that source is not run and counts as a failure.
+    """
+    guard = _guard(con)
     started = datetime.now(timezone.utc).isoformat(timespec="seconds")
     repo_audit.append(
         con,
@@ -144,11 +194,22 @@ def run_archive_snapshot(
             )
             continue
 
-        result = run_restic_backup(
-            defaults=policy.defaults,
-            source=src,
-            dry_run=dry_run,
+        refused = _repository_refused(
+            guard,
+            con,
+            repository=src.repository,
+            ref=src.name,
+            machine_id=machine_id,
+            context={"policy_name": policy_name, "source_name": src.name, "dry_run": dry_run},
         )
+        if refused is not None:
+            result = _not_run("backup", f"refused by volume ownership: {refused}")
+        else:
+            result = run_restic_backup(
+                defaults=policy.defaults,
+                source=src,
+                dry_run=dry_run,
+            )
         report.sources.append(
             SnapshotReport(
                 name=src.name,
@@ -171,6 +232,7 @@ def run_archive_snapshot(
                 "repository": src.repository,
                 "dry_run": dry_run,
                 **_summarise_for_audit(result),
+                **({"ownership_refused": refused} if refused else {}),
             },
         )
 
@@ -281,8 +343,10 @@ def run_archive_init(
 
     Per ADR-0002, callers route through the CLI which requires
     ``--execute``. The runner itself doesn't gate — it's used directly
-    by tests too.
+    by tests too. Repositories outside this host's replica grants are
+    refused like snapshot sources (see :func:`run_archive_snapshot`).
     """
+    guard = _guard(con)
     repositories: "OrderedDict[str, None]" = OrderedDict()
     for src in policy.sources:
         if not src.enabled:
@@ -304,7 +368,18 @@ def run_archive_init(
 
     results: list[tuple[str, ResticRunResult]] = []
     for repository in repositories:
-        result = run_restic_init(defaults=policy.defaults, repository=repository)
+        refused = _repository_refused(
+            guard,
+            con,
+            repository=repository,
+            ref=repository,
+            machine_id=machine_id,
+            context={"policy_name": policy_name, "operation": "init"},
+        )
+        if refused is not None:
+            result = _not_run("init", f"refused by volume ownership: {refused}")
+        else:
+            result = run_restic_init(defaults=policy.defaults, repository=repository)
         results.append((repository, result))
         repo_audit.append(
             con,
@@ -315,6 +390,7 @@ def run_archive_init(
                 "policy_name": policy_name,
                 "repository": repository,
                 **_summarise_for_audit(result),
+                **({"ownership_refused": refused} if refused else {}),
             },
         )
 

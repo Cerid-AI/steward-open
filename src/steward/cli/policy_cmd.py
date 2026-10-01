@@ -9,7 +9,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from steward.core.errors import PolicyError
+from steward.core.errors import EstateError, PolicyError
 from steward.core.policy import load_policy
 from steward.infra.db.plan import plan
 
@@ -103,14 +103,18 @@ def plan_cmd(
         console.print(f"[red]✗[/red] {exc}")
         raise typer.Exit(1) from exc
 
-    summary = plan(
-        policy_path=policy_path,
-        out_path=out,
-        root_prefix=root,
-        phase_name=phase,
-        max_files=limit,
-        register=not no_register,
-    )
+    try:
+        summary = plan(
+            policy_path=policy_path,
+            out_path=out,
+            root_prefix=root,
+            phase_name=phase,
+            max_files=limit,
+            register=not no_register,
+        )
+    except EstateError as exc:
+        console.print(f"[red]✗[/red] {exc}")
+        raise typer.Exit(2) from exc
     console.print(f"[green]✓[/green] wrote {summary.out_path}")
     console.print(f"  manifest_run_id   = {summary.manifest_run_id}")
     console.print(f"  rows total        = {summary.rows:,}")
@@ -128,6 +132,8 @@ def plan_cmd(
         console.print(f"  registered        = {summary.registered_path}")
     if summary.blocked_reasons:
         console.print(f"  blocked_reasons   = {list(summary.blocked_reasons)}")
+    if summary.ownership_note:
+        console.print(f"  [yellow]ownership[/yellow]         = {summary.ownership_note}")
     if root:
         console.print(f"  root prefix       = {root}")
     if phase:

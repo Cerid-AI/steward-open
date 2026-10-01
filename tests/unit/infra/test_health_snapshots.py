@@ -25,6 +25,7 @@ from steward.infra.health.snapshots import (
     LATEST_FILENAME,
     SNAPSHOTS_FILENAME,
     health_dir,
+    latest_report_path,
     read_health_series,
     read_latest_pointer,
     write_health_snapshot,
@@ -178,3 +179,16 @@ def test_health_dir_layout(tmp_path: Path) -> None:
 def test_empty_series(tmp_path: Path) -> None:
     assert read_health_series(data_dir=tmp_path, limit=48) == []
     assert read_latest_pointer(data_dir=tmp_path) is None
+
+
+def test_latest_report_is_the_last_compact_snapshot(tmp_path: Path) -> None:
+    """``health/latest.json`` holds the whole last compact report — what a client publishes."""
+    data_dir = tmp_path / "data"
+    write_health_snapshot(_minimal_report(generated_at="2026-08-05T10:00:00+00:00"), data_dir=data_dir)
+    last = _minimal_report(generated_at="2026-08-05T11:00:00+00:00")
+    write_health_snapshot(last, data_dir=data_dir)
+
+    path = latest_report_path(data_dir)
+    assert path == data_dir / "health" / "latest.json"
+    assert json.loads(path.read_text(encoding="utf-8")) == estate_health_to_snapshot_dict(last, compact=True)
+    assert not path.with_name("latest.json.tmp").exists()

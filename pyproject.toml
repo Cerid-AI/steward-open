@@ -1,6 +1,6 @@
 [project]
 name = "steward-fs"
-version = "0.3.25"
+version = "0.4.0"
 description = "Steward — filesystem stewardship: scan, classify, plan, apply"
 requires-python = ">=3.12,<3.13"
 license = "Apache-2.0"

@@ -254,12 +254,13 @@ def path_tree_depth1(*, db_path: Path, req: PathTreeRequest) -> PathTreeResult:
         finally:
             con.close()
     else:
+        from steward.infra.estate.rollup import claim_exclusions
         from steward.infra.stats_matrix import _claims_source_with_source
         from steward.infra.sync.attach import attach_imports
 
         with attach_imports(db_path=db_path) as ctx:
             schemas = [""] + ctx.aliases
-            source = _claims_source_with_source(schemas)
+            source = _claims_source_with_source(schemas, claim_exclusions(ctx))
             rows, uses_overlay = run(source, ctx.connection, has_source_col=True)
             if not ctx.aliases:
                 notes.append("include_imports=true but no attached inventories")
